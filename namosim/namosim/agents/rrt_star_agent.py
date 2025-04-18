@@ -169,7 +169,7 @@ class RRT_STAR_Agent(Agent):
         )
 
         plan = rrt.plan()
-        # rrt.plot(plan)
+        rrt.plot(plan)
         if not plan:
             return None
         poses = [x.pose for x in plan]
