@@ -98,9 +98,9 @@ class WuLevihnBehaviorConfigModel(BaseBehaviorConfigModel):
     use_social_layer: bool = attr()
 
 
-class StilmanRRTStarBehaviorConfigModel(BaseModel):
-    type: str = "stilman_rrt_star_behavior"
-    parameters: StilmanRRTStarBehaviorParametersModel
+class StilmanRRTStarBehaviorConfigModel(BaseBehaviorConfigModel):
+    type: t.Literal["stilman_rrt_star_behavior"] = attr()
+    parameters: StilmanRRTStarBehaviorParametersModel = element()
 
 
 AgentBehaviorConfig = t.Union[
@@ -111,6 +111,7 @@ AgentBehaviorConfig = t.Union[
     TeleopBehaviorConfigModel,
     StilmanBehaviorConfigModel,
     PPOAgentConfigModel,
+    StilmanRRTStarBehaviorConfigModel,
 ]
 
 

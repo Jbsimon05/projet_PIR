@@ -122,7 +122,7 @@ class DiffDriveRRTStar:
     def steer(self, from_node: Node, target: PoseModel) -> Node:
         x0, y0, theta0 = from_node.pose
         theta0_rad = utils.normalize_angle_radians(math.radians(theta0))
-        linear_vels = np.linspace(-self.max_vel, self.max_vel, 3)
+        linear_vels = np.linspace(-self.max_vel*0.5, self.max_vel, 3)
         angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 5)
         control_inputs = [(v, w) for v in linear_vels for w in angular_vels]
         best_node = from_node
@@ -224,6 +224,38 @@ class DiffDriveRRTStar:
                     self.c_best = total_cost
                 return path
         return None
+
+    def smooth_path(self, path: List[Node], max_trials: int = 100) -> List[Node]:
+        """Shortcutting: lisse le chemin en supprimant les points inutiles si possible."""
+        if not path or len(path) < 3:
+            return path
+        path = path.copy()
+        for _ in range(max_trials):
+            if len(path) < 3:
+                break
+            i = random.randint(0, len(path) - 3)
+            j = random.randint(i + 2, len(path) - 1)
+            node_i = path[i]
+            node_j = path[j]
+            # Vérifie si le segment direct est sans collision
+            if self._shortcut_collision_free(node_i, node_j):
+                # Supprime les points intermédiaires
+                path = path[:i+1] + path[j:]
+        return path
+
+    def _shortcut_collision_free(self, node_a: Node, node_b: Node, steps: int = 10) -> bool:
+        """Vérifie si le segment direct entre node_a et node_b est sans collision."""
+        x0, y0, t0 = node_a.pose
+        x1, y1, t1 = node_b.pose
+        for k in range(1, steps):
+            alpha = k / steps
+            x = x0 + alpha * (x1 - x0)
+            y = y0 + alpha * (y1 - y0)
+            theta = t0 + alpha * (t1 - t0)
+            temp_node = Node((x, y, theta))
+            if not self.collision_free(temp_node):
+                return False
+        return True
 
     def plot(self, path: Optional[List[Node]] = None):
         fig = plt.figure(figsize=(10, 10))
