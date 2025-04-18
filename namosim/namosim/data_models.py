@@ -74,6 +74,13 @@ class StilmanRRTStarBehaviorParametersModel(BaseXmlModel, tag="parameters"):
     grab_start_distance: float | None = attr(default=None)
     grab_end_distance: float | None = attr(default=None)
     conflict_horizon: int = attr(default=15)
+    # Champs sociaux spécifiques StilmanRRTStar
+    check_new_opening_activated: bool = attr(default=True)
+    manip_weight: float = attr(default=1.0)
+    reset_knowledge_activated: bool = attr(default=True)
+    social_movability_evaluation_activated: bool = attr(default=True)
+    social_placement_choice_activated: bool = attr(default=True)
+    use_social_layer: bool = attr(default=True)
 
 
 class StilmanBehaviorConfigModel(BaseBehaviorConfigModel):
@@ -93,12 +100,7 @@ class WuLevihnBehaviorConfigModel(BaseBehaviorConfigModel):
 
 class StilmanRRTStarBehaviorConfigModel(BaseModel):
     type: str = "stilman_rrt_star_behavior"
-    check_new_opening_activated: bool
-    manip_weight: float
-    reset_knowledge_activated: bool
-    social_movability_evaluation_activated: bool
-    social_placement_choice_activated: bool
-    use_social_layer: bool
+    parameters: StilmanRRTStarBehaviorParametersModel
 
 
 AgentBehaviorConfig = t.Union[
