@@ -26,7 +26,9 @@ from namosim.data_models import (
     NamoConfigModel,
     PoseModel,
     StilmanBehaviorConfigModel,
+    StilmanRRTStarBehaviorConfigModel,
     StilmanBehaviorParametersModel,
+    StilmanRRTStarBehaviorParametersModel
 )
 from namosim.utils import collision
 from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
@@ -259,6 +261,21 @@ class World:
 
             if agent.behavior.type == "stilman_2005_behavior":
                 new_robot = agts.Stilman2005Agent(
+                    navigation_goals=goals,
+                    config=agent.behavior,
+                    logs_dir=logs_dir,
+                    full_geometry_acquired=True,
+                    uid=agent.agent_id,
+                    polygon=robot_polygon,
+                    style=agent_style,
+                    pose=init_pose,
+                    sensors=[OmniscientSensor()],
+                    cell_size=cell_size,
+                    collision_margin=collision_margin,
+                    logger=logger,
+                )
+            elif agent.behavior.type == "stilman_rrt_star_behavior":
+                new_robot = agts.StilmanRRTStarAgent(
                     navigation_goals=goals,
                     config=agent.behavior,
                     logs_dir=logs_dir,
@@ -1007,6 +1024,28 @@ class World:
                 config=StilmanBehaviorConfigModel(
                     type="stilman_2005_behavior",
                     parameters=StilmanBehaviorParametersModel(
+                        drive_type="differential",
+                        robot_rotation_unit_angle=30,
+                        push_only=agent_config.push_only,
+                        grab_start_distance=agent_config.grab_start_distance,
+                    ),
+                ),
+                logs_dir=logs_dir,
+                full_geometry_acquired=True,
+                uid=agent_config.id,
+                polygon=agent_polygon,
+                style=AgentStyle(),
+                pose=pose,
+                sensors=[OmniscientSensor()],
+                cell_size=map.cell_size,
+                collision_margin=collision_margin,
+                logger=logger,
+            )
+            agent = agts.StilmanRRTStarAgent(
+                navigation_goals=[],
+                config=StilmanRRTStarBehaviorConfigModel(
+                    type="stilman_2005_behavior",
+                    parameters=StilmanRRTStarBehaviorParametersModel(
                         drive_type="differential",
                         robot_rotation_unit_angle=30,
                         push_only=agent_config.push_only,
