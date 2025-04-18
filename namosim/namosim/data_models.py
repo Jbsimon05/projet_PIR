@@ -2,7 +2,6 @@ import typing as t
 
 from pydantic_xml import BaseXmlModel, attr, element
 import yaml
-from typing import List, Optional
 from pydantic import BaseModel
 
 PoseModel = t.Tuple[float, float, float]
@@ -26,6 +25,10 @@ class NavigationOnlyBehaviorConfigModel(BaseBehaviorConfigModel):
 
 class RRTAgentConfigModel(BaseBehaviorConfigModel):
     type: t.Literal["rrt"] = attr()
+
+
+class RRT_STAR_AgentConfigModel(BaseBehaviorConfigModel):
+    type: t.Literal["rrt_star"] = attr()
 
 
 class TeleopBehaviorConfigModel(BaseBehaviorConfigModel):
@@ -76,6 +79,7 @@ AgentBehaviorConfig = t.Union[
     WuLevihnBehaviorConfigModel,
     NavigationOnlyBehaviorConfigModel,
     RRTAgentConfigModel,
+    RRT_STAR_AgentConfigModel,
     TeleopBehaviorConfigModel,
     StilmanBehaviorConfigModel,
     PPOAgentConfigModel,

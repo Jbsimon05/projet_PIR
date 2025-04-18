@@ -1,8 +1,6 @@
 import copy
 import io
-import math
 import os
-import random
 import typing as t
 from xml.dom import minidom
 
@@ -11,7 +9,7 @@ import numpy as np
 from bidict import bidict  # type: ignore[reportPrivateImportUsage]
 from PIL import Image, ImageDraw
 from shapely.geometry import Point
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import Polygon
 from typing_extensions import Self
 
 from namosim import svg_styles
@@ -37,7 +35,6 @@ from namosim.world.goal import Goal
 from namosim.world.obstacle import Obstacle
 from namosim.world.sensors.omniscient_sensor import OmniscientSensor
 from namosim.data_models import namo_config_from_yaml
-from collections import deque
 
 
 class World:
@@ -291,6 +288,20 @@ class World:
                 )
             elif agent.behavior.type == "rrt":
                 new_robot = agts.RRTAgent(
+                    navigation_goals=goals,
+                    config=agent.behavior,
+                    logs_dir=logs_dir,
+                    full_geometry_acquired=True,
+                    uid=agent.agent_id,
+                    polygon=robot_polygon,
+                    style=agent_style,
+                    pose=init_pose,
+                    sensors=[OmniscientSensor()],
+                    cell_size=cell_size,
+                    logger=logger,
+                )
+            elif agent.behavior.type == "rrt_star":
+                new_robot = agts.RRT_STAR_Agent(
                     navigation_goals=goals,
                     config=agent.behavior,
                     logs_dir=logs_dir,

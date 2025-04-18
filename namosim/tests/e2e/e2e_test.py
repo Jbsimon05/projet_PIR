@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from namosim.simulator import Simulator, create_sim_from_file
+from namosim.simulator import create_sim_from_file
 import cProfile
 
 
@@ -59,6 +59,24 @@ class TestE2E:
     def test_rrt_nav_only(self):
         sim = create_sim_from_file(
             simulation_file_path=os.path.join(self.scenarios_folder, "rrt.svg")
+        )
+        sim.run()
+        assert any(
+            [
+                x.message == "Agent robot_0 finished executing all its goals."
+                for x in sim.logger
+            ]
+        )
+        assert any(
+            [
+                x.message.startswith("Agent robot_0 successfully executed goal")
+                for x in sim.logger
+            ]
+        )
+
+    def test_rrt_star_nav_only(self):
+        sim = create_sim_from_file(
+            simulation_file_path=os.path.join(self.scenarios_folder, "rrt_star.svg")
         )
         sim.run()
         assert any(
