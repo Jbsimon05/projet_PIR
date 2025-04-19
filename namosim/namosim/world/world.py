@@ -1044,7 +1044,7 @@ class World:
             agent = agts.StilmanRRTStarAgent(
                 navigation_goals=[],
                 config=StilmanRRTStarBehaviorConfigModel(
-                    type="stilman_2005_behavior",
+                    type="stilman_rrt_star_behavior",
                     parameters=StilmanRRTStarBehaviorParametersModel(
                         drive_type="differential",
                         robot_rotation_unit_angle=30,

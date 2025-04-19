@@ -216,7 +216,7 @@ class DiffDriveRRTStar:
                 if potential_cost < near.cost and self.collision_free(Node(near.pose, new_node)):
                     near.parent = new_node
                     near.cost = potential_cost
-            if self.near_goal(new_node): # and n > 2000
+            if self.near_goal(new_node) and n > 2000:
                 path = self._get_path(new_node)
                 total_cost = path[-1].cost
                 if self.informed and total_cost < self.best_cost:
