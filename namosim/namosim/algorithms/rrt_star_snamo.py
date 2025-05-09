@@ -270,7 +270,9 @@ class DiffDriveRRTStar:
                     self.best_cost = total_cost
                     self.c_best = total_cost
                 final_configs = list(map(lambda x : x.pose, path))
+                print(f"RRT* found a path with cost {total_cost}")  # Debug log
                 return (True, final_configs, self.tree, set(self.tree) , {node.pose:node.cost for node in self.tree}, False)
+        print("RRT* failed to find a path")  # Debug log
         return (False, False, self.tree, set(self.tree), dict(), False)
 
 

@@ -1130,6 +1130,7 @@ class StilmanRRTStarAgent(Agent):
             robot_polygon=robot.polygon,
         )
         if simple_path_to_goal:
+            print("Found a direct path to the goal")  # Debug log
             # If the goal is in the same free space component as the robot in simulated w_t
             # Orig. condition in pseudo-code is : x^f in C^acc_R(W)
             # TODO FIX COST COMPUTATION TO FIT SAME MODEL AS MANIP SEARCH !
@@ -1232,6 +1233,7 @@ class StilmanRRTStarAgent(Agent):
         )
 
         while o_1 != "":
+            print(f"Selected obstacle {o_1} for manipulation to reach component {c_1}")  # Debug log
             self.logger.append(
                 utils.NamosimLog(
                     "Agent {}: select_connect(depth={}, avoid_list={}): selected entity {} for manipulation search to reach component {}.".format(
@@ -1379,6 +1381,7 @@ class StilmanRRTStarAgent(Agent):
 
         if ros_publisher:
             ros_publisher.cleanup_robot_observed_world(agent_id=self.uid)
+        print("No valid plan found in select_connect")  # Debug log
         return nav_plan.Plan(
             plan_error="no_plan_found_error",
             agent_id=self.uid,
@@ -2722,7 +2725,7 @@ class StilmanRRTStarAgent(Agent):
                         collides_with = collision.get_collisions_for_entity(
                             robot_transfer_end_poly,
                             other_entities_polygons,
-                            other_entities_aabb_tree,
+                            others_aabb_tree=other_entities_aabb_tree,
                         )
 
                         if collides_with:
@@ -3277,7 +3280,7 @@ class StilmanRRTStarAgent(Agent):
         if obstacle_can_intrude_r_acc and not obstacle_can_intrude_c_1_x:
             if ccs_data.grid[cell[0]][cell[1]] > 0 and cell not in r_acc_cells:
                 return True
-        elif not obstacle_can_intrude_r_acc and obstacle_can_intrude_c_1_x:
+        elif obstacle_can_intrude_c_1_x and not obstacle_can_intrude_r_acc:
             if cell in r_acc_cells:
                 return True
         elif not obstacle_can_intrude_r_acc and not obstacle_can_intrude_c_1_x:
@@ -3921,6 +3924,7 @@ class StilmanRRTStarAgent(Agent):
             exit_condition=exit_condition,
             get_neighbors=get_neighbors_for_evasion,
         )
+
         if not came_from:
             # If the robot was in an obstacle, no evasion is possible
             return robot_start_social_cost, None
@@ -3993,7 +3997,7 @@ class StilmanRRTStarAgent(Agent):
         )
 
         if len(real_path) < 2:
-            return robot_start_social_cost, None
+            return None
 
         evasion_transit_path = EvasionTransitPath.from_poses(
             real_path, robot_polygon, robot_pose, conflicts=potential_deadlocks
