@@ -2096,7 +2096,7 @@ class StilmanRRTStarAgent(Agent):
                     )
 
                 # TODO : This WILL error out until RRT* gscores are implemented
-                
+
                 transfer_cost = gscore[raw_path[-1]] + self.g(
                     raw_path[-1].robot.floating_point_pose,
                     robot_config_after_release.floating_point_pose,
@@ -2421,7 +2421,8 @@ class StilmanRRTStarAgent(Agent):
             get_convex_hull(start[0]),
             start[0],
             goal,
-            robot_inflated_grid
+            robot_inflated_grid,
+            self.pose_to_fixed_precision
         ).plan()
 
     def get_grab_start_poses(
