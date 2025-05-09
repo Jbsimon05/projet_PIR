@@ -25,7 +25,7 @@ def get_convex_hull(config:RobotObstacleConfiguration) -> Polygon:
     last_obstacle_pose = config.obstacle.floating_point_pose
     last_robot_pose = config.robot.floating_point_pose
     vector = (last_obstacle_pose[0] - last_robot_pose[0], last_obstacle_pose[1] - last_robot_pose[1],last_obstacle_pose[2] - last_robot_pose[2])
-    new_obstacle_polygon = affinity.translate(config.obstacle.polygon, xoff=vector[0], yoff=vector[1])
+    new_obstacle_polygon = affinity.translate(config.obstacle.polygon, xoff=math.sqrt(vector[0]**2 + vector[1]**2), yoff=0)
     new_obstacle_polygon = affinity.rotate(new_obstacle_polygon, angle=0)
     total_polygon = config.robot.polygon.union(new_obstacle_polygon)
     return Polygon(list(total_polygon.convex_hull.buffer(0)))
@@ -189,7 +189,7 @@ class DiffDriveRRTStar:
                 best_distance = distance_to_target
                 best_node = Node(new_pose, from_node)
                 # Ajoute un coût si v < 0 (marche arrière)
-                best_node.cost  = from_node.cost + utils.distance_between_poses(from_node.pose, new_pose)
+                best_node.cost  = from_node.cost + utils.distance_between_poses(from_node.pose.robot.floating_point_pose, new_pose)
 
         return best_node
 
@@ -244,7 +244,7 @@ class DiffDriveRRTStar:
             best_parent = nearest
             best_cost = nearest.cost + utils.distance_between_poses(nearest.pose.robot.floating_point_pose, new_node.pose.robot.floating_point_pose)
             for near in near_nodes:
-                potential_cost = near.cost + utils.distance_between_poses(near.pose, new_node.pose)
+                potential_cost = near.cost + utils.distance_between_poses(near.pose.robot.floating_point_pose, new_node.pose.robot.floating_point_pose)
                 if potential_cost < best_cost and self.collision_free(Node(new_node.pose, near)):
                     best_parent = near
                     best_cost = potential_cost
