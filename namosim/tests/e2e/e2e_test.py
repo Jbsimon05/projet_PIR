@@ -47,6 +47,8 @@ class TestE2E:
         )
         assert sim is not None, "Simulation could not be created. Check the scenario file."
         sim.run()
+        for log in sim.logger:
+            print(log.message)  # Log all messages for debugging
         assert any(
             [
                 x.message == "Agent robot_0 finished executing all its goals."
