@@ -53,6 +53,7 @@ from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
 from namosim.world.entity import Movability
 from namosim.world.goal import Goal
 from namosim.world.sensors.omniscient_sensor import OmniscientSensor
+from namosim.algorithms.rrt_star_snamo import DiffDriveRRTStar, get_convex_hull
 
 
 class StilmanRRTStarAgent(Agent):
@@ -2045,16 +2046,16 @@ class StilmanRRTStarAgent(Agent):
             if best_transfer_end_configuration is None:
                 return w_t_next, None
 
-            transfer_end_configuration: RobotObstacleConfiguration | None = None
+            raw_path: t.List[RobotObstacleConfiguration] = []
 
             (
                 path_found,
-                transfer_end_configuration,
-                came_from,
+                raw_path,
+                raw_tree,
                 close_set,
-                gscore,
+                gscore, # TODO : Create the right gscore 
                 _,
-            ) = self.a_star_for_manip_search(
+            ) = self.rrt_star_for_manip_search(
                 start=grab_configs,
                 goal=best_transfer_end_configuration,
                 agent_id=agent_id,
@@ -2062,7 +2063,7 @@ class StilmanRRTStarAgent(Agent):
                 obstacle_polygon=obstacle_polygon,
                 other_entities_polygons=other_entities_polygons,
                 other_entities_aabb_tree=other_entities_aabb_tree,
-                robot_inflated_grid=robot_inflated_grid,
+                robot_inflated_grid=robot_inflated_grid, # TODO : Give it the right grid
                 inflated_grid_by_obstacle=inflated_grid_by_obstacle,
                 r_acc_cells=r_acc_cells,
                 c1_cells=c_1_cells_set,
@@ -2077,11 +2078,8 @@ class StilmanRRTStarAgent(Agent):
                 obstacle_can_intrude_c_1_x=obstacle_can_intrude_c_1_x,
             )
 
-            if path_found and transfer_end_configuration:
+            if path_found:
                 # 3. If a path is found, return it
-                raw_path: t.List[RobotObstacleConfiguration] = (
-                    graph_search.reconstruct_path(came_from, transfer_end_configuration)
-                )
                 robot_config_after_release = self.get_robot_config_after_release(
                     robot_inflated_grid,
                     raw_path[-1].robot.floating_point_pose,
@@ -2097,8 +2095,10 @@ class StilmanRRTStarAgent(Agent):
                         "Manip path found but failed to find next transit start config"
                     )
 
-                transfer_cost = gscore[transfer_end_configuration] + self.g(
-                    transfer_end_configuration.robot.floating_point_pose,
+                # TODO : This WILL error out until RRT* gscores are implemented
+                
+                transfer_cost = gscore[raw_path[-1]] + self.g(
+                    raw_path[-1].robot.floating_point_pose,
                     robot_config_after_release.floating_point_pose,
                     is_transfer=True,
                 )
@@ -2138,7 +2138,7 @@ class StilmanRRTStarAgent(Agent):
                 )
                 if best_transfer_end_configuration is not None:
                     raw_path = graph_search.reconstruct_path(
-                        came_from, best_transfer_end_configuration
+                        {node:node.parent for node in filter(lambda node : node.parent != None,raw_tree)}, best_transfer_end_configuration
                     )
                     robot_config_after_release = self.get_robot_config_after_release(
                         robot_inflated_grid,
@@ -2154,6 +2154,8 @@ class StilmanRRTStarAgent(Agent):
                         raise Exception(
                             "Manip path found but failed to find next transit start config"
                         )
+
+                    # TODO : This WILL error out until RRT* gscores are implemented
 
                     transfer_cost = gscore[best_transfer_end_configuration] + self.g(
                         best_transfer_end_configuration.robot.floating_point_pose,
@@ -2414,98 +2416,13 @@ class StilmanRRTStarAgent(Agent):
         obstacle_can_intrude_r_acc: bool = True,
         obstacle_can_intrude_c_1_x: bool = True,
     ) -> t.Any:
-        def get_neighbors(
-            _current: RobotObstacleConfiguration,
-            _gscore: t.Dict[RobotObstacleConfiguration, float],
-            _close_set: t.Set[RobotObstacleConfiguration],
-            _open_queue: t.List[RobotObstacleConfiguration],
-            _came_from: t.Dict[
-                RobotObstacleConfiguration, RobotObstacleConfiguration | None
-            ],
-        ):
-            neighbors, tentative_g_scores = self.get_manip_search_neighbors(
-                _current,
-                _gscore,
-                _close_set,
-                _open_queue,
-                _came_from,
-                start,
-                robot_inflated_grid,
-                inflated_grid_by_obstacle,
-                r_acc_cells,
-                ccs_data,
-                agent_id,
-                obstacle_uid,
-                other_entities_polygons,
-                other_entities_aabb_tree,
-                ros_publisher,
-                obstacle_can_intrude_r_acc=obstacle_can_intrude_r_acc,
-                obstacle_can_intrude_c_1_x=obstacle_can_intrude_c_1_x,
-            )
-            return neighbors, tentative_g_scores
-
-        def heuristic(
-            _neighbor: RobotObstacleConfiguration, _goal: RobotObstacleConfiguration
-        ):
-            return self.h(
-                _neighbor.robot.floating_point_pose, _goal.robot.floating_point_pose
-            )
-
-        def flexible_exit_condition(
-            _current: RobotObstacleConfiguration, _goal: RobotObstacleConfiguration
-        ):
-            if _current == _goal:
-                return True
-
-            if _current.obstacle.cell_in_grid not in sorted_cell_to_combined_cost:
-                # TODO Remove this TEMPORARY condition caused by sometimes missing cell in sorted_cell_to_combined_cost
-                return False
-
-            current_cell_cc_within_bound = (
-                sorted_cell_to_combined_cost[_current.obstacle.cell_in_grid]
-                <= bound_quantile
-            )
-
-            if current_cell_cc_within_bound:
-                next_transit_start_configuration = self.get_robot_config_after_release(
-                    robot_inflated_grid,
-                    _current.robot.floating_point_pose,
-                    _current.robot.polygon,
-                    agent_id,
-                    obstacle_uid,
-                    other_entities_polygons,
-                    other_entities_aabb_tree,
-                )
-                if next_transit_start_configuration:
-                    #   3. ... and creates a global opening to c1
-                    has_new_global_opening = self.is_there_opening_to_c1(
-                        check_for_local_opening=check_for_local_opening,
-                        agent_id=agent_id,
-                        robot_cell=next_transit_start_configuration.cell_in_grid,
-                        obstacle_uid=obstacle_uid,
-                        old_obstacle_polygon=obstacle_polygon,
-                        new_obstacle_polygon=_current.obstacle.polygon,
-                        other_entities_polygons=other_entities_polygons,
-                        other_entities_aabb_tree=other_entities_aabb_tree,
-                        robot_inflated_grid=robot_inflated_grid,
-                        c1_cells=c1_cells,
-                        goal_pose=overall_goal_pose,
-                        goal_cell=overall_goal_cell,
-                        ros_publisher=ros_publisher,
-                        neighborhood=utils.CHESSBOARD_NEIGHBORHOOD,
-                    )
-                    if has_new_global_opening:
-                        return True
-            return False
-
         # Le RRT* doit juste renvoyer l'arbre final
-        return graph_search.new_generic_rrt_star(
-            start,
+        return DiffDriveRRTStar(
+            get_convex_hull(start[0]),
+            start[0],
             goal,
-            exit_condition=flexible_exit_condition,
-            get_neighbors=get_neighbors,
-            heuristic=heuristic,
-        )
+            robot_inflated_grid
+        ).plan()
 
     def get_grab_start_poses(
         self,

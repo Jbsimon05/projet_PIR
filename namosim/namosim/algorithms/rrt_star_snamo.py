@@ -21,6 +21,38 @@ except ImportError:
 def default_exit_condition(current,goal):
     return current == goal
 
+def get_convex_hull(config:RobotObstacleConfiguration) -> Polygon:
+    last_obstacle_pose = config.obstacle.floating_point_pose
+    last_robot_pose = config.robot.floating_point_pose
+    vector = (last_obstacle_pose[0] - last_robot_pose[0], last_obstacle_pose[1] - last_robot_pose[1],last_obstacle_pose[2] - last_robot_pose[2])
+    new_obstacle_polygon = affinity.translate(config.obstacle.polygon, xoff=vector[0], yoff=vector[1])
+    new_obstacle_polygon = affinity.rotate(new_obstacle_polygon, angle=0)
+    total_polygon = config.robot.polygon.union(new_obstacle_polygon)
+    return Polygon(list(total_polygon.convex_hull.buffer(0)))
+
+def get_obstacle_pos_from_prev(new_robot_pose:PoseModel, last_robot_pose:PoseModel, last_obstacle_pose:PoseModel) -> PoseModel:
+    vector = (last_obstacle_pose[0] - last_robot_pose[0], last_obstacle_pose[1] - last_robot_pose[1],last_obstacle_pose[2] - last_robot_pose[2])
+    return (new_robot_pose[0] + vector[0], new_robot_pose[1] + vector[1],new_robot_pose[2] + vector[2])
+
+def change_robot_config_with_new_posemodel(pose:PoseModel, config:RobotObstacleConfiguration) -> RobotObstacleConfiguration:
+    """Outputs a new RobotObstacleConfiguration with the robot's pose replaced by the new PoseModel and the obstacle's pose also changed"""
+    return RobotObstacleConfiguration(
+        robot_pose=pose,
+        robot_polygon=config.robot.polygon,
+        robot_cell_in_grid=config.robot.cell_in_grid,# TODO : FIGURE OUT HOW TO GIVE THE CORRECT INFO HERE
+        robot_csv_polygon=config.robot.csv_polygon,
+        robot_fixed_precision_pose=(1,1,1), # TODO : FIX THIS AND FIGURE OUT HOW TO GET THE RIGHT FIXED POS HERE
+        obstacle_floating_point_pose=get_obstacle_pos_from_prev(pose, config.robot.floating_point_pose, config.obstacle.floating_point_pose),
+        obstacle_cell_in_grid=config.obstacle.cell_in_grid,# TODO : FIGURE OUT HOW TO GIVE THE CORRECT INFO HERE
+        obstacle_csv_polygon=config.robot.csv_polygon,
+        obstacle_fixed_precision_pose=(1,1,1),# TODO : FIX THIS AND FIGURE OUT HOW TO GET THE RIGHT FIXED POS HERE
+        obstacle_polygon=config.obstacle.polygon,
+        manip_pose_id=config.manip_pose_id,
+        action=config.action,
+        prev_robot_pose=config.prev_robot_pose,
+        prev_robot_polygon=config.prev_robot_polygon
+    )
+
 @dataclass
 class Node:
     pose: RobotObstacleConfiguration
@@ -63,10 +95,10 @@ class DiffDriveRRTStar:
         self.c_min = utils.distance_between_poses(self.start.pose, self.goal.pose)
 
         # Demander ce qu'il faut faire ici
-        self.x_center = np.array([(self.start.pose[0] + self.goal.pose[0]) / 2,
-                                  (self.start.pose[1] + self.goal.pose[1]) / 2])
-        dx = (self.goal.pose[0] - self.start.pose[0]) / self.c_min if self.c_min > 0 else 1
-        dy = (self.goal.pose[1] - self.start.pose[1]) / self.c_min if self.c_min > 0 else 0
+        self.x_center = np.array([(self.start.pose.robot.floating_point_pose[0] + self.goal.pose.robot.floating_point_pose[0]) / 2,
+                                  (self.start.pose.robot.floating_point_pose[1] + self.goal.pose.robot.floating_point_pose[1]) / 2])
+        dx = (self.goal.pose.robot.floating_point_pose[0] - self.start.pose.robot.floating_point_pose[0]) / self.c_min if self.c_min > 0 else 1
+        dy = (self.goal.pose.robot.floating_point_pose[1] - self.start.pose.robot.floating_point_pose[1]) / self.c_min if self.c_min > 0 else 0
         self.C = np.array([[dx, -dy], [dy, dx]])
 
 
@@ -98,7 +130,7 @@ class DiffDriveRRTStar:
                 x = random.uniform(0, self.map.width)
                 y = random.uniform(0, self.map.height)
                 theta = random.uniform(-180, 180)
-                return (x, y, theta)
+                return change_robot_config_with_new_posemodel((x,y,theta), self.start)
             else:
                 # Ellipse axes
                 a = c_best / 2.0
@@ -112,12 +144,12 @@ class DiffDriveRRTStar:
                     # Check bounds
                     if 0 <= x <= self.map.width and 0 <= y <= self.map.height:
                         theta = random.uniform(-180, 180)
-                        return (x, y, theta)
+                        return change_robot_config_with_new_posemodel((x,y,theta), self.start)
         else:
             x = random.uniform(0, self.map.width)
             y = random.uniform(0, self.map.height)
             theta = random.uniform(-180, 180)
-            return (x, y, theta)
+            return change_robot_config_with_new_posemodel((x,y,theta), self.start)
 
     def nearest_node(self, pose: RobotObstacleConfiguration) -> Node:
         if self.use_kdtree and self._kdtree is not None:
@@ -130,7 +162,7 @@ class DiffDriveRRTStar:
 
     def steer(self, from_node: Node, target: RobotObstacleConfiguration) -> Node:
         # Pas sur de si utiliser robot.floating_point_pose est bien ici
-        x0, y0, theta0 = from_node.pose
+        x0, y0, theta0 = from_node.pose.robot.floating_point_pose
         theta0_rad = utils.normalize_angle_radians(math.radians(theta0))
         linear_vels = np.linspace(-self.max_vel*0.5, self.max_vel, 3)
         angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 5)
@@ -162,18 +194,16 @@ class DiffDriveRRTStar:
         return best_node
 
     def collision_free(self, node: Node) -> bool:
-        # Utiliser get_csv_collisions ici probablement
-
         dx, dy, dtheta = (
-            node.pose[0] - self.start.pose[0],
-            node.pose[1] - self.start.pose[1],
-            node.pose[2] - self.start.pose[2],
+            node.pose.robot.floating_point_pose[0] - self.start.pose.robot.floating_point_pose[0],
+            node.pose.robot.floating_point_pose[1] - self.start.pose.robot.floating_point_pose[1],
+            node.pose.robot.floating_point_pose[2] - self.start.pose.robot.floating_point_pose[2],
         )
         new_polygon = affinity.translate(self.polygon, xoff=dx, yoff=dy)
         new_polygon = affinity.rotate(new_polygon, angle=dtheta)
-        cell = self.map.pose_to_cell(node.pose[0], node.pose[1])
-        occupied = self.map.grid[cell[0]][cell[1]]
-        return occupied == 0
+
+        occupied = self.map.polygon_has_collisions(new_polygon)
+        return occupied == False
 
     def near_goal(self, node: Node) -> bool:
         return utils.distance_between_poses(node.pose, self.goal.pose) <= self.goal_tolerance
@@ -201,18 +231,18 @@ class DiffDriveRRTStar:
         near_nodes = [self.tree[i] for i, m in enumerate(mask) if m and self.tree[i] is not node]
         return near_nodes
 
-    def plan(self) -> Optional[List[Node]]:
+    def plan(self):
         for n in range(self.max_iter):
-            rand_config = self.random_pose() # Il faut que ce soit fourni
+            rand_config = self.random_pose()
             if random.random() < 0.1:
                 rand_config = self.goal.pose
-            nearest = self.nearest_node(rand_config) # Il faut que ce soit fourni
-            new_node = self.steer(nearest, rand_config) # Il fout que ce soit fourni
-            if not self.collision_free(new_node): # Il faut que ce soit fourni
+            nearest = self.nearest_node(rand_config)
+            new_node = self.steer(nearest, rand_config)
+            if not self.collision_free(new_node):
                 continue
-            near_nodes = self.get_near_nodes(new_node) # Il faut que ce soit fourni
+            near_nodes = self.get_near_nodes(new_node)
             best_parent = nearest
-            best_cost = nearest.cost + utils.distance_between_poses(nearest.pose, new_node.pose) # Il faut que ce soit fourni
+            best_cost = nearest.cost + utils.distance_between_poses(nearest.pose.robot.floating_point_pose, new_node.pose.robot.floating_point_pose)
             for near in near_nodes:
                 potential_cost = near.cost + utils.distance_between_poses(near.pose, new_node.pose)
                 if potential_cost < best_cost and self.collision_free(Node(new_node.pose, near)):
@@ -224,7 +254,7 @@ class DiffDriveRRTStar:
             if self.use_kdtree:
                 self._update_kdtree()
             for near in near_nodes:
-                potential_cost = new_node.cost + utils.distance_between_poses(new_node.pose, near.pose)
+                potential_cost = new_node.cost + utils.distance_between_poses(new_node.pose.robot.floating_point_pose, near.pose.robot.floating_point_pose)
                 if potential_cost < near.cost and self.collision_free(Node(near.pose, new_node)):
                     near.parent = new_node
                     near.cost = potential_cost
@@ -234,8 +264,9 @@ class DiffDriveRRTStar:
                 if self.informed and total_cost < self.best_cost:
                     self.best_cost = total_cost
                     self.c_best = total_cost
-                return path
-        return None
+                final_configs = map(lambda x : x.pose, path)
+                return (True, final_configs, self.tree, set(self.tree) , {node.pose:node.cost for node in self.tree}, False)
+        return (False, False, self.tree, set(self.tree), dict(), False)
 
 
 
@@ -261,8 +292,8 @@ class DiffDriveRRTStar:
         """Vérifie si le segment direct entre node_a et node_b est sans collision."""
 
         # Utiliser get_csv_collisions ici probablement
-        x0, y0, t0 = node_a.pose
-        x1, y1, t1 = node_b.pose
+        x0, y0, t0 = node_a.pose.robot.floating_point_pose
+        x1, y1, t1 = node_b.pose.robot.floating_point_pose
         for k in range(1, steps):
             alpha = k / steps
             x = x0 + alpha * (x1 - x0)
