@@ -8,7 +8,8 @@ import cairosvg
 import numpy as np
 from bidict import bidict  # type: ignore[reportPrivateImportUsage]
 from PIL import Image, ImageDraw
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Point
+from shapely.geometry import Polygon
 from typing_extensions import Self
 
 from namosim import svg_styles
@@ -25,7 +26,9 @@ from namosim.data_models import (
     NamoConfigModel,
     PoseModel,
     StilmanBehaviorConfigModel,
+    StilmanRRTStarBehaviorConfigModel,
     StilmanBehaviorParametersModel,
+    StilmanRRTStarBehaviorParametersModel
 )
 from namosim.utils import collision
 from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
@@ -225,7 +228,7 @@ class World:
 
             # make robot polygon a perfect circle
             robot_radius = utils.get_circumscribed_radius(robot_polygon)
-            robot_polygon = robot_polygon
+            robot_polygon = Point(init_pose[0], init_pose[1]).buffer(robot_radius)
             goals: t.List[Goal] = []
 
             for goal in agent.goals:
@@ -271,6 +274,21 @@ class World:
                     collision_margin=collision_margin,
                     logger=logger,
                 )
+            elif agent.behavior.type == "stilman_rrt_star_behavior":
+                new_robot = agts.StilmanRRTStarAgent(
+                    navigation_goals=goals,
+                    config=agent.behavior,
+                    logs_dir=logs_dir,
+                    full_geometry_acquired=True,
+                    uid=agent.agent_id,
+                    polygon=robot_polygon,
+                    style=agent_style,
+                    pose=init_pose,
+                    sensors=[OmniscientSensor()],
+                    cell_size=cell_size,
+                    collision_margin=collision_margin,
+                    logger=logger,
+                )
             elif agent.behavior.type == "navigation_only_behavior":
                 new_robot = agts.NavigationOnlyAgent(
                     navigation_goals=goals,
@@ -289,6 +307,20 @@ class World:
                 new_robot = agts.RRTAgent(
                     navigation_goals=goals,
                     config=agent.behavior,
+                    logs_dir=logs_dir,
+                    full_geometry_acquired=True,
+                    uid=agent.agent_id,
+                    polygon=robot_polygon,
+                    style=agent_style,
+                    pose=init_pose,
+                    sensors=[OmniscientSensor()],
+                    cell_size=cell_size,
+                    logger=logger,
+                )
+            elif agent.behavior.type == "rrt_star":
+                new_robot = agts.RRT_STAR_Agent(
+                    navigation_goals=goals,
+                    config=agent.behavior, 
                     logs_dir=logs_dir,
                     full_geometry_acquired=True,
                     uid=agent.agent_id,
@@ -487,7 +519,9 @@ class World:
                 if goal:
                     goal_group = conversion.add_group(svg_data, "goal", is_layer=False)
                     # Add robot shape
-                    polygon = goal.polygon
+                    polygon = Point(goal.pose[0], goal.pose[1]).buffer(
+                        entity.circumscribed_radius
+                    )
                     conversion.add_shapely_geometry_to_svg(
                         shape=polygon,
                         uid=goal.uid + "_shape",
@@ -681,11 +715,11 @@ class World:
         )
         return collisions
 
-    def get_movable_obstacles(self) -> t.Dict[str, Obstacle]:
-        result: t.Dict[str, Obstacle] = {}
+    def get_movable_obstacles(self) -> t.List[Obstacle]:
+        result = []
         for e in self.dynamic_entities.values():
             if isinstance(e, Obstacle) and e.movability == Movability.MOVABLE:
-                result[e.uid] = e
+                result.append(e)
         return result
 
     def get_all_obstacles(self) -> t.List[Obstacle]:
@@ -904,7 +938,9 @@ class World:
                     t.cast(float, list(polygon.centroid.coords)[0][1]),
                     0.0,
                 )
-                goal_polygon = agents[agent_id].polygon
+                goal_polygon = Point(pose[0], pose[1]).buffer(
+                    agents[agent_id].circumscribed_radius
+                )
                 goal = Goal(
                     uid=uid,
                     polygon=goal_polygon,
@@ -948,7 +984,6 @@ class World:
         }
 
         agent_poses: t.Dict[str, PoseModel] = {}
-        agent_polygons: t.Dict[str, Polygon] = {}
 
         robots_layer = svg_doc.getElementById("robots_layer")
         if robots_layer:
@@ -961,7 +996,6 @@ class World:
                     polygon: Polygon = conversion.svg_pathd_to_shapely_geometry(  # type: ignore
                         svg_path=path_data, ymax_meters=height, scale=map.cell_size
                     )
-                    agent_polygons[agent_id] = polygon
                     agent_poses[agent_id] = (
                         t.cast(float, list(polygon.centroid.coords)[0][0]),
                         t.cast(float, list(polygon.centroid.coords)[0][1]),
@@ -976,23 +1010,42 @@ class World:
         agents: t.List["agts.Agent"] = []
         for agent_config in config.agents:
             pose: PoseModel = (0, 0, 0)
-            agent_polygon = Point(pose[0], pose[1]).buffer(agent_config.radius)
             if agent_config.initial_pose:
                 pose = (
                     agent_config.initial_pose[0],
                     agent_config.initial_pose[1],
                     agent_config.initial_pose[2],
                 )
-                agent_polygon = Point(pose[0], pose[1]).buffer(agent_config.radius)
             elif agent_config.id in agent_poses:
                 pose = agent_poses[agent_config.id]
-                agent_polygon = agent_polygons[agent_config.id]
-
+            agent_polygon = Point(pose[0], pose[1]).buffer(agent_config.radius)
             agent = agts.Stilman2005Agent(
                 navigation_goals=[],
                 config=StilmanBehaviorConfigModel(
                     type="stilman_2005_behavior",
                     parameters=StilmanBehaviorParametersModel(
+                        drive_type="differential",
+                        robot_rotation_unit_angle=30,
+                        push_only=agent_config.push_only,
+                        grab_start_distance=agent_config.grab_start_distance,
+                    ),
+                ),
+                logs_dir=logs_dir,
+                full_geometry_acquired=True,
+                uid=agent_config.id,
+                polygon=agent_polygon,
+                style=AgentStyle(),
+                pose=pose,
+                sensors=[OmniscientSensor()],
+                cell_size=map.cell_size,
+                collision_margin=collision_margin,
+                logger=logger,
+            )
+            agent = agts.StilmanRRTStarAgent(
+                navigation_goals=[],
+                config=StilmanRRTStarBehaviorConfigModel(
+                    type="stilman_rrt_star_behavior",
+                    parameters=StilmanRRTStarBehaviorParametersModel(
                         drive_type="differential",
                         robot_rotation_unit_angle=30,
                         push_only=agent_config.push_only,

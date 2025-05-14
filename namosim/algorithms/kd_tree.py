@@ -73,9 +73,12 @@ class KDTree(Generic[T]):
 
             _query_recursive(near_subtree, depth + 1)
 
-            # Check if we need to search the far subtree
+            # Only search the far subtree if it could contain a closer point
+            # This avoids infinite recursion in degenerate trees
             if len(nearest) < k or (diff**2) < nearest[-1][0]:
-                _query_recursive(far_subtree, depth + 1)
+                # Prevent infinite recursion by checking if far_subtree is not the same as near_subtree
+                if far_subtree is not near_subtree and far_subtree is not None:
+                    _query_recursive(far_subtree, depth + 1)
 
         _query_recursive(self.root, 0)
         return [obj for _, obj in nearest]
