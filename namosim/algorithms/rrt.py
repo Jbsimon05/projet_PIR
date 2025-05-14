@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import random
 from typing import List, Optional
+import time
 
 from namosim.data_models import PoseModel
 from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
@@ -12,13 +13,11 @@ import matplotlib.pyplot as plt
 from shapely import affinity
 import numpy as np
 
-
 @dataclass
 class Node:
     pose: PoseModel
     parent: Optional["Node"] = None
     cost: float = 0.0
-
 
 class DiffDriveRRT:
     def __init__(
@@ -55,6 +54,9 @@ class DiffDriveRRT:
         # Robot parameters
         self.max_vel = self.map.cell_size * 2
 
+        # Placeholder for timing
+        self.elapsed_time: Optional[float] = None
+
     def random_pose(self) -> PoseModel:
         """Generate random configuration in workspace"""
         x = random.uniform(0, self.map.width)
@@ -64,7 +66,6 @@ class DiffDriveRRT:
 
     def nearest_node(self, pose: PoseModel) -> Node:
         """Find nearest node in tree to given pose"""
-
         if self.use_kd_tree:
             nearest_node = self.kd_tree.query((pose[0], pose[1]))[0]
             return nearest_node
@@ -79,39 +80,28 @@ class DiffDriveRRT:
         x0, y0, theta0 = from_node.pose
         theta0_rad = utils.normalize_angle_radians(math.radians(theta0))
 
-        # Define ranges of linear and angular velocities
         linear_vels = np.linspace(-self.max_vel, self.max_vel, 3)
         angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 5)
-
-        # Create combinations of control inputs
         control_inputs = [(v, w) for v in linear_vels for w in angular_vels]
 
         best_node = from_node
         best_distance = float("inf")
 
-        # Simulate each control input
         for v, w in control_inputs:
             if v == 0 and w == 0:
                 continue
-
-            # Calculate new pose based on velocity inputs
-            if abs(w) < 1e-6:  # Straight line motion
+            if abs(w) < 1e-6:
                 x_new = x0 + v * math.cos(theta0_rad)
                 y_new = y0 + v * math.sin(theta0_rad)
                 theta_new_rad = theta0_rad
-            else:  # Arc motion
+            else:
                 x_new = x0 + (v / w) * (math.sin(theta0_rad + w) - math.sin(theta0_rad))
                 y_new = y0 - (v / w) * (math.cos(theta0_rad + w) - math.cos(theta0_rad))
-                theta_new_rad = theta0_rad + w  # Don't normalize here yet
-
-            # Normalize the new angle relative to the target to avoid 180-degree flips
+                theta_new_rad = theta0_rad + w
             theta_new_rad = utils.normalize_angle_radians(theta_new_rad)
             new_pose = (x_new, y_new, math.degrees(theta_new_rad))
 
-            # Calculate distance to target with proper angle difference
             distance_to_target = utils.distance_between_poses(new_pose, target)
-
-            # Create temporary node for collision checking
             temp_node = Node(new_pose)
 
             if distance_to_target < best_distance and self.collision_free(temp_node):
@@ -133,11 +123,7 @@ class DiffDriveRRT:
         new_polygon = affinity.rotate(new_polygon, angle=dtheta)
 
         occupied = self.map.polygon_has_collisions(new_polygon)
-
-        # debug_img = self.map.draw_polygon_on_map(polygon=new_polygon)
-        # debug_img.save('debug_img.png')
-
-        return occupied == False
+        return not occupied
 
     def near_goal(self, node: Node) -> bool:
         """Check if node is near goal"""
@@ -148,10 +134,9 @@ class DiffDriveRRT:
 
     def plan(self) -> Optional[List[Node]]:
         """Main RRT planning algorithm"""
+        start_time = time.time()
         for n in range(self.max_iter):
             rand_config = self.random_pose()
-
-            # Occasionally sample goal directly
             if random.random() < 0.1:
                 rand_config = self.goal.pose
 
@@ -166,8 +151,11 @@ class DiffDriveRRT:
 
                 if self.near_goal(new_node) and n > 2000:
                     path = self._get_path(new_node)
+                    self.elapsed_time = time.time() - start_time
                     return path
 
+        # No path found
+        self.elapsed_time = time.time() - start_time
         return None  # No path found
 
     def _get_path(self, node: Node) -> List[Node]:
@@ -199,14 +187,11 @@ class DiffDriveRRT:
             path_y = [node.pose[1] for node in path]
             plt.plot(path_x, path_y, "g-", linewidth=2)
 
-        # Plot start and goal
-        # plt.plot(self.start.pose[0], self.start.pose[1], "bo", markersize=10)
-        # plt.plot(self.goal.pose[0], self.goal.pose[1], "go", markersize=10)
-
         plt.xlim(0, self.map.width)
         plt.ylim(0, self.map.height)
         plt.grid(True)
         plt.axis("equal")
-        plt.title("RRT Path Planning for Differential Drive Robot")
+        time_info = f"{self.elapsed_time:.2f}s" if self.elapsed_time is not None else "N/A"
+        plt.title(f"RRT Path Planning (Time: {time_info})")
         plt.show()
         plt.close(fig)

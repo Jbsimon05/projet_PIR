@@ -73,12 +73,38 @@ class KDTree(Generic[T]):
 
             _query_recursive(near_subtree, depth + 1)
 
-            # Only search the far subtree if it could contain a closer point
-            # This avoids infinite recursion in degenerate trees
+            # Prevent infinite recursion in degenerate trees
             if len(nearest) < k or (diff**2) < nearest[-1][0]:
-                # Prevent infinite recursion by checking if far_subtree is not the same as near_subtree
                 if far_subtree is not near_subtree and far_subtree is not None:
                     _query_recursive(far_subtree, depth + 1)
 
         _query_recursive(self.root, 0)
         return [obj for _, obj in nearest]
+    def query_radius(self, point: Iterable[float], radius: float) -> List[T]:
+        """Renvoie tous les objets dont la distance euclidienne au 'point' est ≤ radius."""
+        target = list(point)
+        r2 = radius * radius
+        result: List[T] = []
+        def _search(node: Optional[KDNode[T]], depth: int):
+            if node is None:
+                return
+            axis = depth % self.dimensions
+            diff = target[axis] - node.point[axis]
+            # si l'hyperplan étant l'axe axis est à moins de radius
+            if diff*diff <= r2:
+                # teste la distance réelle
+                dist2 = sum((a - b)**2 for a, b in zip(target, node.point))
+                if dist2 <= r2:
+                    result.append(node.object)
+                # il faut explorer les deux sous-arbres
+                _search(node.left, depth+1)
+                _search(node.right, depth+1)
+            else:
+                # on n'explore que le sous-arbre de la bonne “côté”
+                if diff < 0:
+                    _search(node.left, depth+1)
+                else:
+                    _search(node.right, depth+1)
+        _search(self.root, 0)
+        return result
+
