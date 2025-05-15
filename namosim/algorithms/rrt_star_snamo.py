@@ -107,6 +107,7 @@ class DiffDriveRRTStar:
         self.use_kdtree = use_kdtree and _has_kdtree
         self._kdtree = None
         self._node_coords = [self._pose_to_xy(self.start.pose)]
+        self.rejected = []
 
         self.max_vel = self.map.cell_size
 
@@ -214,6 +215,7 @@ class DiffDriveRRTStar:
                 # Ajoute un coût si v < 0 (marche arrière)
                 best_node.cost  = from_node.cost + utils.distance_between_poses(from_node.pose.obstacle.floating_point_pose, new_pose.obstacle.floating_point_pose)
             elif not self.collision_free(temp_node):
+                self.rejected.append(temp_node.pose)
                 # print("NOT COLLISION FREE : ", temp_node.pose.robot.floating_point_pose, temp_node.pose.obstacle.floating_point_pose)
                 pass
 
@@ -371,7 +373,8 @@ class DiffDriveRRTStar:
         # uncomment this to show the convex hull polygon's points
         #plt.plot(list(map(lambda coord : coord[0], self.polygon.exterior.coords)), list(map(lambda coord : coord[1], self.polygon.exterior.coords)), "ro")
         #self.map.to_image().save("map.png")
-        for node in [random.choice(self.tree) for i in range(3)]:
+        # Uncomment this to show 3 random colliders and their origin and rejected potential node positions
+        """for node in [random.choice(self.tree) for i in range(3)]:
 
             plt.plot(node.pose.robot.floating_point_pose[0], node.pose.robot.floating_point_pose[1], "go", markersize=10)
             dx, dy, dtheta = (
@@ -384,7 +387,8 @@ class DiffDriveRRTStar:
             new_polygon = affinity.rotate(new_polygon, angle=dtheta, origin=Point(node.pose.robot.floating_point_pose[0], node.pose.robot.floating_point_pose[1]))
 
             plt.plot(list(map(lambda coord : coord[0], new_polygon.exterior.coords)), list(map(lambda coord : coord[1], new_polygon.exterior.coords)), "ro")
-
+        for reject in list(set(self.rejected)):
+            plt.plot(reject.robot.floating_point_pose[0], reject.robot.floating_point_pose[1], "bo", markersize=6)"""
         plt.title(title)
         plt.show()
         plt.close(fig)
