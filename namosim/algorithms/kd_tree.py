@@ -80,6 +80,7 @@ class KDTree(Generic[T]):
 
         _query_recursive(self.root, 0)
         return [obj for _, obj in nearest]
+
     def query_radius(self, point: Iterable[float], radius: float) -> List[T]:
         """Renvoie tous les objets dont la distance euclidienne au 'point' est ≤ radius."""
         target = list(point)

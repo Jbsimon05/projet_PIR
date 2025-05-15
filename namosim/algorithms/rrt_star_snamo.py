@@ -1,23 +1,20 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from typing import List, Optional
-import random
 import math
 
 from namosim.data_models import PoseModel
 from namosim.utils import utils
 from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
 from namosim.agents.stilman_configurations import RobotObstacleConfiguration
+from namosim.algorithms.kd_tree import KDTree
 from shapely import affinity
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon
 import namosim.navigation.basic_actions as ba
+import numpy as np
+import random
+import matplotlib.pyplot as plt
+from shapely.geometry import Point
 
-try:
-    from scipy.spatial import KDTree
-    _has_kdtree = True
-except ImportError:
-    _has_kdtree = False
 
 def default_exit_condition(current,goal):
     return current == goal
@@ -95,7 +92,7 @@ class DiffDriveRRTStar:
         cost_calculator = default_cost_calc,
         max_iter: int = 3000,
         goal_tolerance=0.1,
-        use_kdtree: bool = True,
+        use_kd_tree: bool = True,
         informed: bool = True,
         use_funcs:bool = False
     ):
@@ -108,11 +105,19 @@ class DiffDriveRRTStar:
         self.max_iter = max_iter
         self.goal_tolerance = goal_tolerance
         self.tree: List[Node] = [self.start]
-        self.use_kdtree = use_kdtree and _has_kdtree
-        self._kdtree = None
+
+        self.use_kd_tree = use_kd_tree
         self._node_coords = [self._pose_to_xy(self.start.pose)]
+
         self.rejected = []
         self.cost_calc = default_cost_calc
+
+        
+        def point_getter(node: Node):
+            return (node.pose.obstacle.floating_point_pose[0], node.pose.obstacle.floating_point_pose[1])
+        self.kd_tree = KDTree(dimensions=2, point_getter=point_getter)
+        self.kd_tree.add(self.start)
+
 
         self.max_vel = self.map.cell_size
 
@@ -135,10 +140,6 @@ class DiffDriveRRTStar:
     def _pose_to_xy(self, pose: RobotObstacleConfiguration):
         return (pose.obstacle.floating_point_pose[0], pose.obstacle.floating_point_pose[1], pose.obstacle.floating_point_pose[2])
 
-    def _update_kdtree(self):
-        if self.use_kdtree:
-            self._node_coords = [self._pose_to_xy(node.pose) for node in self.tree]
-            self._kdtree = KDTree(self._node_coords)
 
     def _sample_unit_ball(self):
         # Uniform sampling in unit circle
@@ -181,14 +182,17 @@ class DiffDriveRRTStar:
             theta = random.uniform(-180, 180)
             return change_robot_config_with_new_posemodel((x,y,theta), self.start.pose, self.fixed_precision_converter)
 
-    def nearest_node(self, pose: RobotObstacleConfiguration) -> Node:
-        if self.use_kdtree and self._kdtree is not None:
-            xy = self._pose_to_xy(pose)
-            _, idx = self._kdtree.query(xy)
-            return self.tree[idx]
-        else:
-            distances = [(self.cost_calc(node.pose, pose)) for node in self.tree]
-            return self.tree[np.argmin(distances)]
+
+    def nearest_node(self, pose: PoseModel) -> Node:
+        """Find nearest node in tree to given pose"""
+        if self.use_kd_tree:
+            nearest_node = self.kd_tree.query((pose[0], pose[1]))[0]
+            return nearest_node
+
+        distances = [
+            utils.distance_between_poses(pose, node.pose.obstacle.floating_point_pose) for node in self.tree
+        ]
+        return self.tree[np.argmin(distances)]
 
     def steer(self, from_node: Node, target: RobotObstacleConfiguration) -> Node:
         # Pas sur de si utiliser robot.floating_point_pose est bien ici
@@ -272,7 +276,7 @@ class DiffDriveRRTStar:
             rand_config = self.random_pose()
             if random.random() < 0.1:
                 rand_config = self.goal.pose
-            nearest = self.nearest_node(rand_config)
+            nearest = self.nearest_node(rand_config.obstacle.floating_point_pose)
             new_node = self.steer(nearest, rand_config)
             if not self.collision_free(new_node):
                 continue
@@ -287,8 +291,8 @@ class DiffDriveRRTStar:
             new_node.parent = best_parent
             new_node.cost = best_cost
             self.tree.append(new_node)
-            if self.use_kdtree:
-                self._update_kdtree()
+            if self.use_kd_tree:
+                self.kd_tree.add(new_node)
             for near in near_nodes:
                 potential_cost = new_node.cost + self.cost_calc(new_node.pose, near.pose)
                 if potential_cost < near.cost and self.collision_free(Node(near.pose, new_node)):
@@ -374,7 +378,7 @@ class DiffDriveRRTStar:
                 f"c_best={self.c_best if self.c_best is not None else 'None'}, c_min={self.c_min:.2f}"
             )
         else:
-            title = f"RRT* Path Planning for Differential Drive Robot (use_kdtree={self.use_kdtree}, informed={self.informed})"
+            title = f"RRT* Path Planning for Differential Drive Robot (use_kdtree={self.use_kd_tree}, informed={self.informed})"
         # uncomment this to show the convex hull polygon's points
         #plt.plot(list(map(lambda coord : coord[0], self.polygon.exterior.coords)), list(map(lambda coord : coord[1], self.polygon.exterior.coords)), "ro")
         #self.map.to_image().save("map.png")
