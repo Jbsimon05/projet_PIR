@@ -371,6 +371,20 @@ class DiffDriveRRTStar:
         # uncomment this to show the convex hull polygon's points
         #plt.plot(list(map(lambda coord : coord[0], self.polygon.exterior.coords)), list(map(lambda coord : coord[1], self.polygon.exterior.coords)), "ro")
         #self.map.to_image().save("map.png")
+        for node in [random.choice(self.tree) for i in range(3)]:
+
+            plt.plot(node.pose.robot.floating_point_pose[0], node.pose.robot.floating_point_pose[1], "go", markersize=10)
+            dx, dy, dtheta = (
+                node.pose.robot.floating_point_pose[0],
+                node.pose.robot.floating_point_pose[1],
+                node.pose.robot.floating_point_pose[2],
+            )
+            new_polygon = affinity.translate(self.polygon, xoff=dx, yoff=dy)
+
+            new_polygon = affinity.rotate(new_polygon, angle=dtheta, origin=Point(node.pose.robot.floating_point_pose[0], node.pose.robot.floating_point_pose[1]))
+
+            plt.plot(list(map(lambda coord : coord[0], new_polygon.exterior.coords)), list(map(lambda coord : coord[1], new_polygon.exterior.coords)), "ro")
+
         plt.title(title)
         plt.show()
         plt.close(fig)
