@@ -73,6 +73,9 @@ def change_robot_config_with_new_posemodel(pose:PoseModel, config:RobotObstacleC
         prev_robot_polygon=config.prev_robot_polygon
     )
 
+def default_cost_calc(from_config:RobotObstacleConfiguration, to_config:RobotObstacleConfiguration) -> float:
+    return utils.distance_between_poses(from_config.obstacle.floating_point_pose, to_config.obstacle.floating_point_pose)
+
 @dataclass
 class Node:
     pose: RobotObstacleConfiguration
@@ -89,6 +92,7 @@ class DiffDriveRRTStar:
         goal: RobotObstacleConfiguration,
         map: BinaryOccupancyGrid,
         fixed_precision_converter,
+        cost_calculator = default_cost_calc,
         max_iter: int = 3000,
         goal_tolerance=0.1,
         use_kdtree: bool = True,
@@ -108,6 +112,7 @@ class DiffDriveRRTStar:
         self._kdtree = None
         self._node_coords = [self._pose_to_xy(self.start.pose)]
         self.rejected = []
+        self.cost_calc = default_cost_calc
 
         self.max_vel = self.map.cell_size
 
@@ -117,7 +122,7 @@ class DiffDriveRRTStar:
         self.best_cost = float("inf")
         self.c_best = None
         # faire gaffe à cette fonction, elle gère que les PoseModel
-        self.c_min = utils.distance_between_poses(self.start.pose.obstacle.floating_point_pose, self.goal.pose.obstacle.floating_point_pose)
+        self.c_min = self.cost_calc(self.start.pose, self.goal.pose)
 
         # Demander ce qu'il faut faire ici
         self.x_center = np.array([(self.start.pose.obstacle.floating_point_pose[0] + self.goal.pose.obstacle.floating_point_pose[0]) / 2,
@@ -182,7 +187,7 @@ class DiffDriveRRTStar:
             _, idx = self._kdtree.query(xy)
             return self.tree[idx]
         else:
-            distances = [(utils.distance_between_poses(node.pose.obstacle.floating_point_pose, pose.obstacle.floating_point_pose)) for node in self.tree]
+            distances = [(self.cost_calc(node.pose, pose)) for node in self.tree]
             return self.tree[np.argmin(distances)]
 
     def steer(self, from_node: Node, target: RobotObstacleConfiguration) -> Node:
@@ -207,13 +212,13 @@ class DiffDriveRRTStar:
                 theta_new_rad = theta0_rad + w
             theta_new_rad = utils.normalize_angle_radians(theta_new_rad)
             new_pose = change_robot_config_with_new_posemodel((x_new, y_new, math.degrees(theta_new_rad)), from_node.pose, self.fixed_precision_converter)
-            distance_to_target = utils.distance_between_poses(new_pose.obstacle.floating_point_pose, target.obstacle.floating_point_pose)
+            distance_to_target = self.cost_calc(new_pose, target)
             temp_node = Node(new_pose)
             if distance_to_target < best_distance and self.collision_free(temp_node):
                 best_distance = distance_to_target
                 best_node = Node(new_pose, from_node)
                 # Ajoute un coût si v < 0 (marche arrière)
-                best_node.cost  = from_node.cost + utils.distance_between_poses(from_node.pose.obstacle.floating_point_pose, new_pose.obstacle.floating_point_pose)
+                best_node.cost  = from_node.cost + self.cost_calc(from_node.pose, new_pose)
             elif not self.collision_free(temp_node):
                 self.rejected.append(temp_node.pose)
                 # print("NOT COLLISION FREE : ", temp_node.pose.robot.floating_point_pose, temp_node.pose.obstacle.floating_point_pose)
@@ -235,7 +240,7 @@ class DiffDriveRRTStar:
         return occupied == False
 
     def near_goal(self, node: Node) -> bool:
-        return (utils.distance_between_poses(node.pose.obstacle.floating_point_pose, self.goal.pose.obstacle.floating_point_pose) ) <= self.goal_tolerance
+        return (self.cost_calc(node.pose, self.goal.pose) ) <= self.goal_tolerance
 
     def _get_path(self, node: Node) -> List[Node]:
         path = []
@@ -273,9 +278,9 @@ class DiffDriveRRTStar:
                 continue
             near_nodes = self.get_near_nodes(new_node)
             best_parent = nearest
-            best_cost = nearest.cost + utils.distance_between_poses(new_node.pose.obstacle.floating_point_pose, nearest.pose.obstacle.floating_point_pose)
+            best_cost = nearest.cost + self.cost_calc(new_node.pose, nearest.pose)
             for near in near_nodes:
-                potential_cost = near.cost + utils.distance_between_poses(new_node.pose.obstacle.floating_point_pose, near.pose.obstacle.floating_point_pose)
+                potential_cost = near.cost + self.cost_calc(new_node.pose, near.pose)
                 if potential_cost < best_cost and self.collision_free(Node(new_node.pose, near)):
                     best_parent = near
                     best_cost = potential_cost
@@ -285,7 +290,7 @@ class DiffDriveRRTStar:
             if self.use_kdtree:
                 self._update_kdtree()
             for near in near_nodes:
-                potential_cost = new_node.cost + utils.distance_between_poses(new_node.pose.obstacle.floating_point_pose, near.pose.obstacle.floating_point_pose)
+                potential_cost = new_node.cost + self.cost_calc(new_node.pose, near.pose)
                 if potential_cost < near.cost and self.collision_free(Node(near.pose, new_node)):
                     near.parent = new_node
                     near.cost = potential_cost
