@@ -17,20 +17,26 @@ from namosim.algorithms.kd_tree import KDTree as CustomKDTree
 def default_cost_calc(p1:PoseModel, p2:PoseModel) -> float:
     return utils.distance_between_poses(p1, p2)
 
+
+
 @dataclass
 class Node:
     pose: PoseModel
     parent: Optional["Node"] = None
     cost: float = 0.0
+    
+def default_exit_condition(pose:Node, iteration:int) -> bool:
+    return False
 
 class DiffDriveRRTStar:
     def __init__(
         self,
         polygon: Polygon,
         start: PoseModel,
-        goal: PoseModel,
+        goal: PoseModel | None,
         map: BinaryOccupancyGrid,
         cost_calc = default_cost_calc,
+        early_exit_condition = default_exit_condition,
         max_iter: int = 10000,
         goal_tolerance=0.1,
         use_kdtree: bool = True,
@@ -38,7 +44,7 @@ class DiffDriveRRTStar:
     ):
         self.polygon = polygon
         self.start = Node(start)
-        self.goal = Node(goal)
+        self.goal = Node(goal) if goal is not None else None
         self.map = map
         self.max_iter = max_iter
         self.goal_tolerance = goal_tolerance
@@ -46,20 +52,24 @@ class DiffDriveRRTStar:
         self.use_kdtree = use_kdtree
         self._kdtree = None
         self.cost_calc = cost_calc
+        self.early_exit_condition = early_exit_condition
 
         self.max_vel = self.map.cell_size
         self.search_radius = self.map.cell_size * 5
         self.informed = informed
-        self.best_cost = float("inf")
-        self.c_best = None
-        self.c_min = self.cost_calc(self.start.pose, self.goal.pose)
-        self.x_center = np.array([
-            (self.start.pose[0] + self.goal.pose[0]) / 2,
-            (self.start.pose[1] + self.goal.pose[1]) / 2
-        ])
-        dx = (self.goal.pose[0] - self.start.pose[0]) / self.c_min if self.c_min > 0 else 1
-        dy = (self.goal.pose[1] - self.start.pose[1]) / self.c_min if self.c_min > 0 else 0
-        self.C = np.array([[dx, -dy], [dy, dx]])
+        if goal is not None:
+            self.best_cost = float("inf")
+            self.c_best = None
+            self.c_min = self.cost_calc(self.start.pose, self.goal.pose)
+            self.x_center = np.array([
+                (self.start.pose[0] + self.goal.pose[0]) / 2,
+                (self.start.pose[1] + self.goal.pose[1]) / 2
+            ])
+            dx = (self.goal.pose[0] - self.start.pose[0]) / self.c_min if self.c_min > 0 else 1
+            dy = (self.goal.pose[1] - self.start.pose[1]) / self.c_min if self.c_min > 0 else 0
+            self.C = np.array([[dx, -dy], [dy, dx]])
+        else:
+            pass
 
         # Initialize KD-tree if needed
         if self.use_kdtree:
@@ -76,7 +86,7 @@ class DiffDriveRRTStar:
         return (pose[0], pose[1])
 
     def random_pose(self) -> PoseModel:
-        if self.informed and self.c_best is not None and self.c_best < float("inf"):
+        if self.goal is not None and self.informed and self.c_best is not None and self.c_best < float("inf"):
             c_best, c_min = self.c_best, self.c_min
             if c_best == float("inf") or c_best < c_min:
                 x = random.uniform(0, self.map.width)
@@ -151,6 +161,7 @@ class DiffDriveRRTStar:
         return not occupied
 
     def near_goal(self, node: Node) -> bool:
+        assert self.goal is not None
         return self.cost_calc(node.pose, self.goal.pose) <= self.goal_tolerance
 
     def get_near_nodes(self, node: Node) -> List[Node]:
@@ -177,7 +188,7 @@ class DiffDriveRRTStar:
         best_path = None  # Ajout pour stocker le meilleur chemin
         for n in range(self.max_iter):
             rand_config = self.random_pose()
-            if random.random() < 0.1:
+            if self.goal is not None and random.random() < 0.1:
                 rand_config = self.goal.pose
             nearest = self.nearest_node(rand_config)
             new_node = self.steer(nearest, rand_config)
@@ -199,16 +210,20 @@ class DiffDriveRRTStar:
                 potential_cost = new_node.cost + self.cost_calc(new_node.pose, near.pose)
                 if potential_cost < near.cost and self.collision_free(Node(near.pose, new_node)):
                     near.parent, near.cost = new_node, potential_cost
-            if self.near_goal(new_node):
-                path = self._get_path(new_node)
-                total_cost = path[-1].cost
-                if self.informed:
-                    if total_cost < self.best_cost:
-                        self.best_cost, self.c_best = total_cost, total_cost
-                        best_path = path  # On garde le meilleur chemin trouvé
-                else:
-                    self.elapsed_time = time.time() - start_time
-                    return path
+            if self.goal is not None:
+
+                if self.near_goal(new_node):
+                    path = self._get_path(new_node)
+                    total_cost = path[-1].cost
+                    if self.informed:
+                        if total_cost < self.best_cost:
+                            self.best_cost, self.c_best = total_cost, total_cost
+                            best_path = path  # On garde le meilleur chemin trouvé
+                    else:
+                        self.elapsed_time = time.time() - start_time
+                        return path
+            elif self.early_exit_condition(new_node, n):
+                return self.tree
         # No path found or fin de boucle pour informed
         self.elapsed_time = time.time() - start_time
         if self.informed and best_path is not None:
@@ -255,7 +270,8 @@ class DiffDriveRRTStar:
             xs, ys = zip(*[(n.pose[0], n.pose[1]) for n in path])
             plt.plot(xs, ys, 'g-', linewidth=2)
         plt.plot(self.start.pose[0], self.start.pose[1], 'bo', markersize=10)
-        plt.plot(self.goal.pose[0], self.goal.pose[1], 'go', markersize=10)
+        if self.goal is not None:
+            plt.plot(self.goal.pose[0], self.goal.pose[1], 'go', markersize=10)
         plt.xlim(0, self.map.width)
         plt.ylim(0, self.map.height)
         plt.grid(True)

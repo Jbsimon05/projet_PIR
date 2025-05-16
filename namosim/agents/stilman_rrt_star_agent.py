@@ -2015,43 +2015,56 @@ class StilmanRRTStarAgent(Agent):
             bound_quantile = sorted_cell_to_combined_cost[
                 cells_sorted_by_combined_cost[bound_quantile_index]
             ]
+            use_best_transfer = True
+            if use_best_transfer:
+                # 1. Find the best obstacle transfer end configuration, that is, the one with the best compromise cost
+                best_transfer_end_configuration = self.find_best_transfer_end_configuration(
+                    robot_pose=robot_pose,
+                    robot_polygon=robot_polygon,
+                    agent_id=agent_id,
+                    obstacle_uid=obstacle_uid,
+                    obstacle_pose=obstacle_pose,
+                    obstacle_polygon=obstacle_polygon,
+                    goal_pose=goal_pose,
+                    goal_cell=goal_cell,
+                    other_entities_polygons=other_entities_polygons,
+                    other_entities_aabb_tree=other_entities_aabb_tree,
+                    robot_inflated_grid=robot_inflated_grid,
+                    ordered_cells_by_cost=cells_sorted_by_combined_cost,
+                    r_acc_cells=r_acc_cells,
+                    c_1_cells_set=c_1_cells_set,
+                    ccs_data=ccs_data,
+                    init_robot_manip_configs=grab_configs,
+                    ros_publisher=ros_publisher,
+                    gscore=None,
+                    close_set=None,
+                    check_new_local_opening_before_global=check_new_local_opening_before_global,
+                    obstacle_can_intrude_r_acc=obstacle_can_intrude_r_acc,
+                    obstacle_can_intrude_c_1_x=obstacle_can_intrude_c_1_x,
+                )
 
-            # 1. Find the best obstacle transfer end configuration, that is, the one with the best compromise cost
-            best_transfer_end_configuration = self.find_best_transfer_end_configuration(
-                robot_pose=robot_pose,
-                robot_polygon=robot_polygon,
-                agent_id=agent_id,
-                obstacle_uid=obstacle_uid,
-                obstacle_pose=obstacle_pose,
-                obstacle_polygon=obstacle_polygon,
-                goal_pose=goal_pose,
-                goal_cell=goal_cell,
-                other_entities_polygons=other_entities_polygons,
-                other_entities_aabb_tree=other_entities_aabb_tree,
-                robot_inflated_grid=robot_inflated_grid,
-                ordered_cells_by_cost=cells_sorted_by_combined_cost,
-                r_acc_cells=r_acc_cells,
-                c_1_cells_set=c_1_cells_set,
-                ccs_data=ccs_data,
-                init_robot_manip_configs=grab_configs,
-                ros_publisher=ros_publisher,
-                gscore=None,
-                close_set=None,
-                check_new_local_opening_before_global=check_new_local_opening_before_global,
-                obstacle_can_intrude_r_acc=obstacle_can_intrude_r_acc,
-                obstacle_can_intrude_c_1_x=obstacle_can_intrude_c_1_x,
-            )
+                if best_transfer_end_configuration is None:
+                    return w_t_next, None
 
-            if best_transfer_end_configuration is None:
-                return w_t_next, None
-
-            transfer_path = self.rrt_for_manip_search(
-                grab_configs=grab_configs,
-                obstacle_uid=obstacle_uid,
-                goal=best_transfer_end_configuration,
-                other_entities_polygons=other_entities_polygons,
-                map=w_t.map,
-            )
+                transfer_path = self.rrt_for_manip_search(
+                    grab_configs=grab_configs,
+                    obstacle_uid=obstacle_uid,
+                    goal=best_transfer_end_configuration,
+                    other_entities_polygons=other_entities_polygons,
+                    map=w_t.map,
+                )
+            else:
+                transfer_path = self.rrt_for_manip_search_no_goal(
+                    grab_configs=grab_configs,
+                    agent_id=agent_id,
+                    other_entities_aabb_tree=other_entities_aabb_tree,
+                    c1_cells=c_1_cells_set,
+                    check_for_local_opening=check_new_local_opening_before_global,
+                    obstacle_uid=obstacle_uid,
+                    other_entities_polygons=other_entities_polygons,
+                    map=w_t.map,
+                    sorted_cell_to_combined_cost=sorted_cell_to_combined_cost
+                )
 
             # Don't forget to update w_t_next with transfer end state
             if transfer_path:
@@ -2157,6 +2170,132 @@ class StilmanRRTStarAgent(Agent):
         return graph_search.new_generic_dijkstra(
             start, exit_condition=exit_condition, get_neighbors=get_neighbors
         )
+    
+    def rrt_for_manip_search_no_goal(
+        self,
+        grab_configs: t.List[RobotObstacleConfiguration],
+        agent_id: str,
+        obstacle_uid: str,
+        map: BinaryOccupancyGrid,
+        other_entities_polygons: t.Dict[str, Polygon],
+        other_entities_aabb_tree: AABBTree,
+        c1_cells: t.Set[GridCellModel],
+        check_for_local_opening: bool,
+        sorted_cell_to_combined_cost: OrderedDict[GridCellModel, float],
+        ros_publisher: t.Optional["rp.RosPublisher"] = None,
+    ) -> TransferPath | None:
+        
+        map = copy.deepcopy(map)
+        map.update_polygons(other_entities_polygons)
+
+        for grab_config in grab_configs:
+            robot_pose_before_grab = grab_config.prev_robot_pose
+            robot_polygon_before_grab = grab_config.prev_robot_polygon
+            robot_pose_after_grab = grab_config.robot.floating_point_pose
+            robot_polygon_after_grab = grab_config.robot.polygon
+            obstacle_pose = grab_config.obstacle.floating_point_pose
+            obstacle_polygon = grab_config.obstacle.polygon
+
+            combined_polygon = shapely.ops.unary_union(
+                [robot_polygon_after_grab, obstacle_polygon]
+            )
+            robot_obstacle_polygon: Polygon = t.cast(
+                Polygon, combined_polygon.convex_hull
+            )
+
+            self.found_opening = False
+            self.has_local_openings = []
+            def early_exit_condition(node, iteration:int) -> bool:
+                has_opening = self.is_there_opening_to_c1(
+                            check_for_local_opening=check_for_local_opening,
+                            agent_id=agent_id,
+                            robot_cell=grab_config.robot.cell_in_grid,
+                            obstacle_uid=obstacle_uid,
+                            old_obstacle_polygon=obstacle_polygon,
+                            new_obstacle_polygon=obstacle_polygon, # TODO : make sure this is correct
+                            other_entities_polygons=other_entities_polygons,
+                            other_entities_aabb_tree=other_entities_aabb_tree,
+                            robot_inflated_grid=map,
+                            c1_cells=c1_cells,
+                            goal_pose=node.pose,
+                            goal_cell=self.pose_to_fixed_precision(node.pose)[:2],
+                            ros_publisher=ros_publisher,
+                            neighborhood=utils.CHESSBOARD_NEIGHBORHOOD,)
+                self.found_opening = self.found_opening or has_opening
+                if has_opening:
+                    self.has_local_openings.append(node)
+                return self.found_opening or iteration > 8000
+
+            rrt = DiffDriveRRTStar(
+                polygon=robot_obstacle_polygon,
+                start=robot_pose_after_grab,
+                goal=None,
+                early_exit_condition=early_exit_condition,
+                map=map,
+            )
+
+            tree = rrt.plan()
+            if tree is not None and len(self.has_local_openings) > 0:
+                # Compute best compromise cost among poses with local openings
+                best_compromise = self.has_local_openings[0]
+                best_compromise_total_cost = sorted_cell_to_combined_cost[self.pose_to_fixed_precision(best_compromise.pose)[:2]]
+                for node in self.has_local_openings:
+                    cost = sorted_cell_to_combined_cost[self.pose_to_fixed_precision(node.pose)[:2]]
+                    if cost < best_compromise_total_cost:
+                        best_compromise_total_cost = cost
+                        best_compromise = node
+                path = rrt._get_path(best_compromise)
+                poses = [x.pose for x in path]
+                path = TransitPath.from_poses(
+                    poses, robot_polygon_after_grab, robot_pose_after_grab
+                )
+
+                robot_poses = [robot_pose_before_grab]
+                robot_polygons = [robot_polygon_before_grab]
+                obstacle_poses = [obstacle_pose]
+                obstacle_polygons = [obstacle_polygon]
+
+                grab_action = grab_config.action
+                assert isinstance(grab_action, ba.Grab)
+
+                release_action = ba.Release(
+                    entity_uid=obstacle_uid,
+                    distance=-(self.grab_start_distance - self.grab_end_distance),
+                )
+                actions = [grab_action] + path.actions + [release_action]
+
+                for action in actions:
+                    next_robot_pose = action.predict_pose(
+                        robot_poses[-1], robot_poses[-1]
+                    )
+                    next_obstacle_pose = action.predict_pose(
+                        robot_poses[-1], obstacle_poses[-1]
+                    )
+                    next_robot_polygon = action.predict_polygon(
+                        robot_poses[-1], robot_polygons[-1]
+                    )
+                    next_obstacle_polygon = action.predict_polygon(
+                        robot_poses[-1], obstacle_polygons[-1]
+                    )
+
+                    robot_poses.append(next_robot_pose)
+                    obstacle_poses.append(next_obstacle_pose)
+                    robot_polygons.append(next_robot_polygon)
+                    obstacle_polygons.append(next_obstacle_polygon)
+
+                robot_path = RawPath(robot_poses, robot_polygons)
+                obstacle_path = RawPath(obstacle_poses, obstacle_polygons)
+
+                return TransferPath(
+                    robot_path=robot_path,
+                    obstacle_path=obstacle_path,
+                    actions=actions,
+                    grab_action=grab_action,
+                    release_action=release_action,
+                    obstacle_uid=obstacle_uid,
+                    manip_pose_id=grab_config.manip_pose_id,
+                )
+                    
 
     def rrt_for_manip_search(
         self,
