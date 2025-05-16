@@ -57,7 +57,7 @@ from namosim.world.sensors.omniscient_sensor import OmniscientSensor
 from namosim.algorithms.rrt_star import DiffDriveRRTStar
 
 
-class StilmanRRTStarAgent(Agent):
+class StilmanRRTAgent(Agent):
     def __init__(
         self,
         *,
@@ -4029,7 +4029,7 @@ class StilmanRRTStarAgent(Agent):
 
     def copy(self) -> Self:
         """Returns an uninitialized copy instance of this agent."""
-        return StilmanRRTStarAgent(
+        return StilmanRRTAgent(
             navigation_goals=copy.deepcopy(self._navigation_goals),
             config=copy.deepcopy(self.config),
             logs_dir=self.logs_dir,
