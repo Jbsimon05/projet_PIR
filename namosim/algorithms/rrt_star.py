@@ -10,7 +10,7 @@ from namosim.data_models import PoseModel
 from namosim.utils import utils
 from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
 from shapely import affinity
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, Point
 
 from namosim.algorithms.kd_tree import KDTree as CustomKDTree
 
@@ -134,13 +134,16 @@ class DiffDriveRRTStar:
         return best_node
 
     def collision_free(self, node: Node) -> bool:
-        dx = node.pose[0] - self.start.pose[0]
-        dy = node.pose[1] - self.start.pose[1]
-        dtheta = node.pose[2] - self.start.pose[2]
-        new_poly = affinity.translate(self.polygon, xoff=dx, yoff=dy)
-        new_poly = affinity.rotate(new_poly, angle=dtheta)
-        cell = self.map.pose_to_cell(node.pose[0], node.pose[1])
-        return self.map.grid[cell[0]][cell[1]] == 0
+        dx, dy, dtheta = (
+            node.pose[0] - self.start.pose[0],
+            node.pose[1] - self.start.pose[1],
+            node.pose[2] - self.start.pose[2],
+        )
+        new_polygon = affinity.translate(self.polygon, xoff=dx, yoff=dy)
+        new_polygon = affinity.rotate(new_polygon, angle=dtheta, origin=Point(node.pose[0], node.pose[1]))
+
+        occupied = self.map.polygon_has_collisions(new_polygon)
+        return not occupied
 
     def near_goal(self, node: Node) -> bool:
         return utils.distance_between_poses(node.pose, self.goal.pose) <= self.goal_tolerance
