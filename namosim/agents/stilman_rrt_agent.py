@@ -54,10 +54,10 @@ from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
 from namosim.world.entity import Movability
 from namosim.world.goal import Goal
 from namosim.world.sensors.omniscient_sensor import OmniscientSensor
-from namosim.algorithms.rrt import DiffDriveRRT
+from namosim.algorithms.rrt_star import DiffDriveRRTStar
 
 
-class StilmanRRTAgent(Agent):
+class StilmanRRTStarAgent(Agent):
     def __init__(
         self,
         *,
@@ -2185,7 +2185,7 @@ class StilmanRRTAgent(Agent):
                 Polygon, combined_polygon.convex_hull
             )
 
-            rrt = DiffDriveRRT(
+            rrt = DiffDriveRRTStar(
                 polygon=robot_obstacle_polygon,
                 start=robot_pose_after_grab,
                 goal=goal_pose,
@@ -4029,7 +4029,7 @@ class StilmanRRTAgent(Agent):
 
     def copy(self) -> Self:
         """Returns an uninitialized copy instance of this agent."""
-        return StilmanRRTAgent(
+        return StilmanRRTStarAgent(
             navigation_goals=copy.deepcopy(self._navigation_goals),
             config=copy.deepcopy(self.config),
             logs_dir=self.logs_dir,
