@@ -9,9 +9,10 @@ import numpy.typing as npt
 from aabbtree import AABBTree
 from shapely.geometry import Polygon
 from shapely.geometry import Point
+import shapely.ops
 from typing_extensions import Self
 from shapely import affinity
-
+import shapely
 import namosim.display.ros2_publisher as rp
 import namosim.navigation.action_result as ar
 import namosim.navigation.basic_actions as ba
@@ -32,7 +33,7 @@ from namosim.algorithms.new_local_opening_check import check_new_local_opening
 from namosim.data_models import (
     GridCellModel,
     PoseModel,
-    StilmanRRTStarBehaviorConfigModel,
+    StilmanRRTBehaviorConfigModel,
 )
 from namosim.input import Input
 from namosim.navigation.conflict import (
@@ -53,7 +54,7 @@ from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
 from namosim.world.entity import Movability
 from namosim.world.goal import Goal
 from namosim.world.sensors.omniscient_sensor import OmniscientSensor
-from namosim.algorithms.rrt_star_snamo import DiffDriveRRTStar, get_convex_hull
+from namosim.algorithms.rrt_star import DiffDriveRRTStar
 
 
 class StilmanRRTStarAgent(Agent):
@@ -61,7 +62,7 @@ class StilmanRRTStarAgent(Agent):
         self,
         *,
         navigation_goals: t.List[Goal],
-        config: StilmanRRTStarBehaviorConfigModel,
+        config: StilmanRRTBehaviorConfigModel,
         logs_dir: str,
         uid: str,
         polygon: Polygon,
@@ -123,7 +124,7 @@ class StilmanRRTStarAgent(Agent):
         else:
             self.manip_search_procedure = self.manip_search
 
-        self.w_social, self.w_dist, self.w_goal = 20.0, 5.0, 2.0
+        self.w_social, self.w_dist, self.w_goal = 20.0, 10.0, 2.0
         self.w_sum = self.w_social + self.w_dist + self.w_goal
         self.TRANSLATION_DISCRETIZATION_FACTOR = (
             self.cell_size
@@ -150,7 +151,7 @@ class StilmanRRTStarAgent(Agent):
                 [self.rotation_unit_angle, -self.rotation_unit_angle]
             )
         self._all_rot_angles = self.rotation_unit_angle * np.array(
-            range(1, 360 // int(self.rotation_unit_angle))
+            range(360 // int(self.rotation_unit_angle))
         )
 
         if (
@@ -201,7 +202,7 @@ class StilmanRRTStarAgent(Agent):
                 entity.movability = self.deduce_movability(entity.type_)
 
         self.action_space_reduction = (
-            "only_r_acc_then_c_1_x"  # ['none', 'only_r_acc', 'only_r_acc_then_c_1_x']
+            "none"  # ['none', 'only_r_acc', 'only_r_acc_then_c_1_x']
         )
 
         # Initialize static obstacles occupation grid, since it is not supposed to change
@@ -1095,7 +1096,7 @@ class StilmanRRTStarAgent(Agent):
         prev_list: t.Set[str],
         ccs_data: connectivity.CCSData | None = None,
         neighborhood: t.Sequence[GridCellModel] = utils.CHESSBOARD_NEIGHBORHOOD,
-        action_space_reduction: str = "only_r_acc_then_c_1_x",
+        action_space_reduction: str = "none",
         depth=0,
     ):
         """
@@ -2044,118 +2045,13 @@ class StilmanRRTStarAgent(Agent):
             if best_transfer_end_configuration is None:
                 return w_t_next, None
 
-            raw_path: t.List[RobotObstacleConfiguration] = []
-            (
-                path_found,
-                raw_path,
-                raw_tree,
-                close_set,
-                gscore, # TODO : Create the right gscore 
-                _,
-            ) = self.rrt_star_for_manip_search(
-                start=grab_configs,
+            transfer_path = self.rrt_for_manip_search(
+                grab_configs=grab_configs,
+                obstacle_uid=obstacle_uid,
                 goal=best_transfer_end_configuration,
                 other_entities_polygons=other_entities_polygons,
-                other_entities_aabb_tree=other_entities_aabb_tree,
-                map=w_t.map, # TODO : Give it the right grid
+                map=w_t.map,
             )
-
-            if path_found:
-                print(raw_path[0].robot.floating_point_pose,raw_path[1].robot.floating_point_pose ,len(raw_path), len(raw_tree), len(close_set), len(gscore))
-                # 3. If a path is found, return it
-                robot_config_after_release = self.get_robot_config_after_release(
-                    w_t.map,
-                    raw_path[-1].robot.floating_point_pose,
-                    raw_path[-1].robot.polygon,
-                    agent_id,
-                    obstacle_uid,
-                    other_entities_polygons,
-                    other_entities_aabb_tree,
-                )
-
-                if robot_config_after_release is None:
-                    raise Exception(
-                        "Manip path found but failed to find next transit start config"
-                    )
-
-                # TODO : This WILL error out until RRT* gscores are implemented
-
-                transfer_cost = gscore[raw_path[-1]] + self.g(
-                    raw_path[-1].robot.floating_point_pose,
-                    robot_config_after_release.floating_point_pose,
-                    is_transfer=True,
-                )
-                transfer_path = self.get_transfer_path_from_configs(
-                    transfer_configurations=raw_path,
-                    robot_config_after_release=robot_config_after_release,
-                    obstacle_uid=obstacle_uid,
-                    phys_cost=transfer_cost,
-                )
-            else:
-                print(len(raw_path), len(raw_tree), len(close_set), len(gscore))
-                # 4. If no path is found on the first, try finding a best configuration that has a path towards it
-                #   (because we assume the A Star search to have completed, giving us the paths to ALL reachable
-                #   configurations.
-                best_transfer_end_configuration = self.find_best_transfer_end_configuration(
-                    robot_pose=robot_pose,
-                    robot_polygon=robot_polygon,
-                    agent_id=agent_id,
-                    obstacle_uid=obstacle_uid,
-                    obstacle_pose=obstacle_pose,
-                    obstacle_polygon=obstacle_polygon,
-                    goal_pose=goal_pose,
-                    goal_cell=goal_cell,
-                    other_entities_polygons=other_entities_polygons,
-                    other_entities_aabb_tree=other_entities_aabb_tree,
-                    robot_inflated_grid=robot_inflated_grid,
-                    ordered_cells_by_cost=cells_sorted_by_combined_cost,
-                    r_acc_cells=r_acc_cells,
-                    c_1_cells_set=c_1_cells_set,
-                    ccs_data=ccs_data,
-                    init_robot_manip_configs=grab_configs,
-                    ros_publisher=ros_publisher,
-                    gscore=gscore,
-                    close_set=close_set,
-                    check_new_local_opening_before_global=check_new_local_opening_before_global,
-                    obstacle_can_intrude_r_acc=obstacle_can_intrude_r_acc,
-                    obstacle_can_intrude_c_1_x=obstacle_can_intrude_c_1_x,
-                )
-                if best_transfer_end_configuration is not None:
-                    raw_path = graph_search.reconstruct_path(
-                        {node.pose:node.parent.pose for node in filter(lambda node : node.parent != None,raw_tree)}, best_transfer_end_configuration
-                    )
-                    robot_config_after_release = self.get_robot_config_after_release(
-                        w_t.map,
-                        raw_path[-1].robot.floating_point_pose,
-                        raw_path[-1].robot.polygon,
-                        agent_id,
-                        obstacle_uid,
-                        other_entities_polygons,
-                        other_entities_aabb_tree,
-                    )
-
-                    if robot_config_after_release is None:
-                        raise Exception(
-                            "Manip path found but failed to find next transit start config"
-                        )
-
-                    # TODO : This WILL error out until RRT* gscores are implemented
-
-                    transfer_cost = gscore[best_transfer_end_configuration] + self.g(
-                        best_transfer_end_configuration.robot.floating_point_pose,
-                        robot_config_after_release.floating_point_pose,
-                        is_transfer=True,
-                    )
-                    transfer_path = self.get_transfer_path_from_configs(
-                        robot_config_after_release=robot_config_after_release,
-                        transfer_configurations=raw_path,
-                        obstacle_uid=obstacle_uid,
-                        phys_cost=transfer_cost,
-                    )
-                else:
-                    # If after exhausting all possible configurations, none opens a path to the connected component,
-                    # return None
-                    transfer_path = None
 
             # Don't forget to update w_t_next with transfer end state
             if transfer_path:
@@ -2261,6 +2157,94 @@ class StilmanRRTStarAgent(Agent):
         return graph_search.new_generic_dijkstra(
             start, exit_condition=exit_condition, get_neighbors=get_neighbors
         )
+
+    def rrt_for_manip_search(
+        self,
+        grab_configs: t.List[RobotObstacleConfiguration],
+        obstacle_uid: str,
+        goal: RobotObstacleConfiguration,
+        map: BinaryOccupancyGrid,
+        other_entities_polygons: t.Dict[str, Polygon],
+    ) -> TransferPath | None:
+        map = copy.deepcopy(map)
+        map.update_polygons(other_entities_polygons)
+
+        for grab_config in grab_configs:
+            robot_pose_before_grab = grab_config.prev_robot_pose
+            robot_polygon_before_grab = grab_config.prev_robot_polygon
+            robot_pose_after_grab = grab_config.robot.floating_point_pose
+            robot_polygon_after_grab = grab_config.robot.polygon
+            obstacle_pose = grab_config.obstacle.floating_point_pose
+            obstacle_polygon = grab_config.obstacle.polygon
+            goal_pose = goal.robot.floating_point_pose
+
+            combined_polygon = shapely.ops.unary_union(
+                [robot_polygon_after_grab, obstacle_polygon]
+            )
+            robot_obstacle_polygon: Polygon = t.cast(
+                Polygon, combined_polygon.convex_hull
+            )
+
+            rrt = DiffDriveRRTStar(
+                polygon=robot_obstacle_polygon,
+                start=robot_pose_after_grab,
+                goal=goal_pose,
+                map=map,
+            )
+
+            nodes = rrt.plan()
+
+            if nodes:
+                poses = [x.pose for x in nodes]
+                path = TransitPath.from_poses(
+                    poses, robot_polygon_after_grab, robot_pose_after_grab
+                )
+
+                robot_poses = [robot_pose_before_grab]
+                robot_polygons = [robot_polygon_before_grab]
+                obstacle_poses = [obstacle_pose]
+                obstacle_polygons = [obstacle_polygon]
+
+                grab_action = grab_config.action
+                assert isinstance(grab_action, ba.Grab)
+
+                release_action = ba.Release(
+                    entity_uid=obstacle_uid,
+                    distance=-(self.grab_start_distance - self.grab_end_distance),
+                )
+                actions = [grab_action] + path.actions + [release_action]
+
+                for action in actions:
+                    next_robot_pose = action.predict_pose(
+                        robot_poses[-1], robot_poses[-1]
+                    )
+                    next_obstacle_pose = action.predict_pose(
+                        robot_poses[-1], obstacle_poses[-1]
+                    )
+                    next_robot_polygon = action.predict_polygon(
+                        robot_poses[-1], robot_polygons[-1]
+                    )
+                    next_obstacle_polygon = action.predict_polygon(
+                        robot_poses[-1], obstacle_polygons[-1]
+                    )
+
+                    robot_poses.append(next_robot_pose)
+                    obstacle_poses.append(next_obstacle_pose)
+                    robot_polygons.append(next_robot_polygon)
+                    obstacle_polygons.append(next_obstacle_polygon)
+
+                robot_path = RawPath(robot_poses, robot_polygons)
+                obstacle_path = RawPath(obstacle_poses, obstacle_polygons)
+
+                return TransferPath(
+                    robot_path=robot_path,
+                    obstacle_path=obstacle_path,
+                    actions=actions,
+                    grab_action=grab_action,
+                    release_action=release_action,
+                    obstacle_uid=obstacle_uid,
+                    manip_pose_id=grab_config.manip_pose_id,
+                )
 
     def a_star_for_manip_search(
         self,
@@ -2376,27 +2360,6 @@ class StilmanRRTStarAgent(Agent):
             get_neighbors=get_neighbors,
             heuristic=heuristic,
         )
-    
-    def rrt_star_for_manip_search(
-        self,
-        start: t.List[RobotObstacleConfiguration],
-        goal: RobotObstacleConfiguration,
-        other_entities_polygons: t.Dict[str, Polygon],
-        other_entities_aabb_tree: AABBTree,
-        map: BinaryOccupancyGrid,
-    ) -> t.Any:
-        # Le RRT* doit juste renvoyer l'arbre final
-        rrt =  DiffDriveRRTStar(
-            get_convex_hull(start[0]),
-            start[0],
-            goal,
-            map,
-            self.pose_to_fixed_precision
-        )
-
-        plan = rrt.plan()
-        rrt.plot()
-        return plan
 
     def get_grab_start_poses(
         self,
@@ -2658,10 +2621,10 @@ class StilmanRRTStarAgent(Agent):
                     continue
 
                 # For that, we:
-                for rot in [0.0] + self._all_rot_angles:
+                for angle in self._all_rot_angles:
                     # Iterate over the possible obstacle rotations in this cell
                     obstacle_pose_at_transfer_end = utils.grid_pose_to_real_pose(
-                        list(current_cell) + [rot],
+                        [current_cell[0], current_cell[1], angle],
                         robot_inflated_grid.cell_size,
                         robot_inflated_grid.grid_pose,
                     )
@@ -2675,7 +2638,6 @@ class StilmanRRTStarAgent(Agent):
                         other_entities_polygons,
                         other_entities_aabb_tree,
                     )
-
                     if collides_with:
                         continue
 
@@ -4038,7 +4000,7 @@ class StilmanRRTStarAgent(Agent):
         robot_poses.append(robot_config_after_release.floating_point_pose)
         robot_polygons.append(robot_config_after_release.polygon)
 
-        # pad to make obstacle path same lenght as robot path
+        # pad to make obstacle path same lenghth as robot path
         obtacle_poses.append(obtacle_poses[-1])
         obtacle_polygons.append(obtacle_polygons[-1])
 
