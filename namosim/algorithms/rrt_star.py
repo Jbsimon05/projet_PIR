@@ -157,8 +157,19 @@ class DiffDriveRRTStar:
         dists = np.linalg.norm(poses[:, :2] - node_pose[:2], axis=1)
         return [self.tree[i] for i in np.where(dists < self.search_radius)[0] if self.tree[i] is not node]
 
+    def _sample_unit_ball(self):
+        # Uniform sampling in unit circle
+        a = random.random()
+        b = random.random()
+        r = a ** 0.5
+        theta = 2 * math.pi * b
+        x = r * math.cos(theta)
+        y = r * math.sin(theta)
+        return np.array([x, y])
+
     def plan(self) -> Optional[List[Node]]:
         start_time = time.time()
+        best_path = None  # Ajout pour stocker le meilleur chemin
         for n in range(self.max_iter):
             rand_config = self.random_pose()
             if random.random() < 0.1:
@@ -186,12 +197,17 @@ class DiffDriveRRTStar:
             if self.near_goal(new_node):
                 path = self._get_path(new_node)
                 total_cost = path[-1].cost
-                if self.informed and total_cost < self.best_cost:
-                    self.best_cost, self.c_best = total_cost, total_cost
-                self.elapsed_time = time.time() - start_time
-                return path
-        # No path found
+                if self.informed:
+                    if total_cost < self.best_cost:
+                        self.best_cost, self.c_best = total_cost, total_cost
+                        best_path = path  # On garde le meilleur chemin trouvé
+                else:
+                    self.elapsed_time = time.time() - start_time
+                    return path
+        # No path found or fin de boucle pour informed
         self.elapsed_time = time.time() - start_time
+        if self.informed and best_path is not None:
+            return best_path
         return None
 
     def smooth_path(self, path: List[Node], max_trials: int = 100) -> List[Node]:
