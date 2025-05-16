@@ -14,6 +14,9 @@ from shapely.geometry import Polygon, Point
 
 from namosim.algorithms.kd_tree import KDTree as CustomKDTree
 
+def default_cost_calc(p1:PoseModel, p2:PoseModel) -> float:
+    return utils.distance_between_poses(p1, p2)
+
 @dataclass
 class Node:
     pose: PoseModel
@@ -27,6 +30,7 @@ class DiffDriveRRTStar:
         start: PoseModel,
         goal: PoseModel,
         map: BinaryOccupancyGrid,
+        cost_calc = default_cost_calc,
         max_iter: int = 10000,
         goal_tolerance=0.1,
         use_kdtree: bool = True,
@@ -41,13 +45,14 @@ class DiffDriveRRTStar:
         self.tree: List[Node] = [self.start]
         self.use_kdtree = use_kdtree
         self._kdtree = None
+        self.cost_calc = cost_calc
 
         self.max_vel = self.map.cell_size
         self.search_radius = self.map.cell_size * 5
         self.informed = informed
         self.best_cost = float("inf")
         self.c_best = None
-        self.c_min = utils.distance_between_poses(self.start.pose, self.goal.pose)
+        self.c_min = self.cost_calc(self.start.pose, self.goal.pose)
         self.x_center = np.array([
             (self.start.pose[0] + self.goal.pose[0]) / 2,
             (self.start.pose[1] + self.goal.pose[1]) / 2
@@ -98,7 +103,7 @@ class DiffDriveRRTStar:
             result = self._kdtree.query(pose[:2], k=1)
             if result:
                 return result[0]
-        distances = [utils.distance_between_poses(pose, node.pose) for node in self.tree]
+        distances = [self.cost_calc(pose, node.pose) for node in self.tree]
         return self.tree[int(np.argmin(distances))]
 
     def steer(self, from_node: Node, target: PoseModel) -> Node:
@@ -125,12 +130,12 @@ class DiffDriveRRTStar:
             theta_new_rad = utils.normalize_angle_radians(theta_new_rad)
             new_pose = (x_new, y_new, math.degrees(theta_new_rad))
 
-            distance_to_target = utils.distance_between_poses(new_pose, target)
+            distance_to_target = self.cost_calc(new_pose, target)
             temp_node = Node(new_pose)
             if distance_to_target < best_distance and self.collision_free(temp_node):
                 best_distance = distance_to_target
                 best_node = Node(new_pose, from_node)
-                best_node.cost = from_node.cost + utils.distance_between_poses(from_node.pose, new_pose)
+                best_node.cost = from_node.cost + self.cost_calc(from_node.pose, new_pose)
         return best_node
 
     def collision_free(self, node: Node) -> bool:
@@ -146,7 +151,7 @@ class DiffDriveRRTStar:
         return not occupied
 
     def near_goal(self, node: Node) -> bool:
-        return utils.distance_between_poses(node.pose, self.goal.pose) <= self.goal_tolerance
+        return self.cost_calc(node.pose, self.goal.pose) <= self.goal_tolerance
 
     def get_near_nodes(self, node: Node) -> List[Node]:
         if self.use_kdtree and self._kdtree is not None:
@@ -180,9 +185,9 @@ class DiffDriveRRTStar:
                 continue
             near_nodes = self.get_near_nodes(new_node)
             best_parent = nearest
-            best_cost = nearest.cost + utils.distance_between_poses(nearest.pose, new_node.pose)
+            best_cost = nearest.cost + self.cost_calc(nearest.pose, new_node.pose)
             for near in near_nodes:
-                potential_cost = near.cost + utils.distance_between_poses(near.pose, new_node.pose)
+                potential_cost = near.cost + self.cost_calc(near.pose, new_node.pose)
                 if potential_cost < best_cost and self.collision_free(Node(new_node.pose, near)):
                     best_parent, best_cost = near, potential_cost
             new_node.parent = best_parent
@@ -191,7 +196,7 @@ class DiffDriveRRTStar:
             if self.use_kdtree:
                 self._kdtree.add(new_node)
             for near in near_nodes:
-                potential_cost = new_node.cost + utils.distance_between_poses(new_node.pose, near.pose)
+                potential_cost = new_node.cost + self.cost_calc(new_node.pose, near.pose)
                 if potential_cost < near.cost and self.collision_free(Node(near.pose, new_node)):
                     near.parent, near.cost = new_node, potential_cost
             if self.near_goal(new_node):
