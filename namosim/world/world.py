@@ -182,7 +182,6 @@ class World:
                     pose=pose,
                     style=style,
                     movability=Movability.MOVABLE,
-                    full_geometry_acquired=True,
                 )
                 dynamic_entities.append(movable_box)
             if el.tagName in ["svg:path", "path"] and type_ == "wall":
@@ -263,7 +262,20 @@ class World:
                     navigation_goals=goals,
                     config=agent.behavior,
                     logs_dir=logs_dir,
-                    full_geometry_acquired=True,
+                    uid=agent.agent_id,
+                    polygon=robot_polygon,
+                    style=agent_style,
+                    pose=init_pose,
+                    sensors=[OmniscientSensor()],
+                    cell_size=cell_size,
+                    collision_margin=collision_margin,
+                    logger=logger,
+                )
+            elif agent.behavior.type == "stilman_rrt":
+                new_robot = agts.StilmanRRTAgent(
+                    navigation_goals=goals,
+                    config=agent.behavior,
+                    logs_dir=logs_dir,
                     uid=agent.agent_id,
                     polygon=robot_polygon,
                     style=agent_style,
@@ -278,7 +290,6 @@ class World:
                     navigation_goals=goals,
                     config=agent.behavior,
                     logs_dir=logs_dir,
-                    full_geometry_acquired=True,
                     uid=agent.agent_id,
                     polygon=robot_polygon,
                     style=agent_style,
@@ -293,7 +304,6 @@ class World:
                     navigation_goals=goals,
                     config=agent.behavior,
                     logs_dir=logs_dir,
-                    full_geometry_acquired=True,
                     uid=agent.agent_id,
                     polygon=robot_polygon,
                     style=agent_style,
@@ -307,7 +317,6 @@ class World:
                     navigation_goals=goals,
                     config=agent.behavior,
                     logs_dir=logs_dir,
-                    full_geometry_acquired=True,
                     uid=agent.agent_id,
                     polygon=robot_polygon,
                     style=agent_style,
@@ -321,7 +330,6 @@ class World:
                     navigation_goals=goals,
                     config=agent.behavior, 
                     logs_dir=logs_dir,
-                    full_geometry_acquired=True,
                     uid=agent.agent_id,
                     polygon=robot_polygon,
                     style=agent_style,
@@ -335,7 +343,6 @@ class World:
                     navigation_goals=goals,
                     config=agent.behavior,
                     logs_dir=logs_dir,
-                    full_geometry_acquired=True,
                     uid=agent.agent_id,
                     polygon=robot_polygon,
                     style=agent_style,
@@ -349,7 +356,6 @@ class World:
                     navigation_goals=goals,
                     config=agent.behavior,
                     logs_dir=logs_dir,
-                    full_geometry_acquired=True,
                     uid=agent.agent_id,
                     polygon=robot_polygon,
                     style=agent_style,
@@ -885,7 +891,6 @@ class World:
                     pose=pose,
                     style=style,
                     movability=Movability.MOVABLE,
-                    full_geometry_acquired=True,
                 )
                 obtacles.append(movable)
             except RuntimeError:
@@ -1031,7 +1036,6 @@ class World:
                     ),
                 ),
                 logs_dir=logs_dir,
-                full_geometry_acquired=True,
                 uid=agent_config.id,
                 polygon=agent_polygon,
                 style=AgentStyle(),

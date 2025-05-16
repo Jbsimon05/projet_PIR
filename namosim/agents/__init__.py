@@ -6,3 +6,4 @@ from namosim.agents.stilman_rrt_star_agent import StilmanRRTStarAgent  # noqa: F
 from namosim.agents.teleop_agent import TeleopAgent  # noqa: F401
 from namosim.agents.rrt_agent import RRTAgent  # noqa: F401
 from namosim.agents.rrt_star_agent import RRT_STAR_Agent  # noqa: F401
+from namosim.agents.stilman_rrt_agent import StilmanRRTAgent  # noqa: F401

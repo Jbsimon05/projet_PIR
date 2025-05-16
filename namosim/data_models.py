@@ -60,6 +60,10 @@ class StilmanBehaviorParametersModel(BaseXmlModel, tag="parameters"):
     grab_end_distance: float | None = attr(default=None)
     conflict_horizon: int = attr(default=15)
 
+class StilmanRRTBehaviorConfigModel(BaseBehaviorConfigModel):
+    type: t.Literal["stilman_rrt"] = attr()
+    parameters: StilmanBehaviorParametersModel = element()
+
 
 class StilmanRRTStarBehaviorParametersModel(BaseXmlModel, tag="parameters"):
     check_new_local_opening_before_global: bool = attr(default=True)
@@ -113,6 +117,7 @@ AgentBehaviorConfig = t.Union[
     StilmanBehaviorConfigModel,
     PPOAgentConfigModel,
     StilmanRRTStarBehaviorConfigModel,
+    StilmanRRTBehaviorConfigModel
 ]
 
 
