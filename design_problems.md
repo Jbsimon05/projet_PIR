@@ -65,3 +65,15 @@
 
 
     - the raw exploration tree
+
+
+## What's left
+- make a visualization in rviz2 for the RRT* path if found and the tree
+- removing/replacing find_best_... 
+    - look at is_there_opening 
+    - get the tree up to ~500 (or N) nodes, and do that check on those nodes
+    - search for the first possible solution or cap it at ~2000 after a time
+- making the goal_tolerance small
+- making collision detection better
+- making sure at the end of the path that the end node leaves enough space to go back
+- paramétrer le type de robot : "DiffDrive" ou "Holonomic"
