@@ -2231,7 +2231,7 @@ class StilmanRRTStarAgent(Agent):
                 if has_opening:
                     self.has_local_openings.append(node)
                 print(self.found_opening, iteration)
-                return self.found_opening and iteration > 2000
+                return self.found_opening and iteration > 1000
 
             rrt = DiffDriveRRTStar(
                 polygon=robot_obstacle_polygon,
