@@ -2015,7 +2015,7 @@ class StilmanRRTStarAgent(Agent):
             bound_quantile = sorted_cell_to_combined_cost[
                 cells_sorted_by_combined_cost[bound_quantile_index]
             ]
-            use_best_transfer = True
+            use_best_transfer = False
             if use_best_transfer:
                 # 1. Find the best obstacle transfer end configuration, that is, the one with the best compromise cost
                 best_transfer_end_configuration = self.find_best_transfer_end_configuration(
@@ -2063,6 +2063,8 @@ class StilmanRRTStarAgent(Agent):
                     obstacle_uid=obstacle_uid,
                     other_entities_polygons=other_entities_polygons,
                     map=w_t.map,
+                    r_acc_cells=r_acc_cells,
+                    ccs_data=ccs_data,
                     sorted_cell_to_combined_cost=sorted_cell_to_combined_cost
                 )
 
@@ -2179,10 +2181,14 @@ class StilmanRRTStarAgent(Agent):
         map: BinaryOccupancyGrid,
         other_entities_polygons: t.Dict[str, Polygon],
         other_entities_aabb_tree: AABBTree,
+        r_acc_cells: t.Set[GridCellModel],
         c1_cells: t.Set[GridCellModel],
+        ccs_data: connectivity.CCSData,
         check_for_local_opening: bool,
         sorted_cell_to_combined_cost: OrderedDict[GridCellModel, float],
         ros_publisher: t.Optional["rp.RosPublisher"] = None,
+        obstacle_can_intrude_r_acc: bool = True,
+        obstacle_can_intrude_c_1_x: bool = True,
     ) -> TransferPath | None:
         
         map = copy.deepcopy(map)
@@ -2238,10 +2244,18 @@ class StilmanRRTStarAgent(Agent):
             if tree is not None and len(self.has_local_openings) > 0:
                 # Compute best compromise cost among poses with local openings
                 best_compromise = self.has_local_openings[0]
-                best_compromise_total_cost = sorted_cell_to_combined_cost[self.pose_to_fixed_precision(best_compromise.pose)[:2]]
+                best_compromise_total_cost = sorted_cell_to_combined_cost[self.pose_to_fixed_precision(best_compromise.pose)[:2]] + best_compromise.cost
                 for node in self.has_local_openings:
-                    cost = sorted_cell_to_combined_cost[self.pose_to_fixed_precision(node.pose)[:2]]
-                    if cost < best_compromise_total_cost:
+                    cost = sorted_cell_to_combined_cost[self.pose_to_fixed_precision(node.pose)[:2]] + best_compromise.cost
+                    intrudes = self.polygon_intrudes_components(
+                                grab_config.obstacle.polygon,
+                                map,
+                                r_acc_cells,
+                                ccs_data,
+                                obstacle_can_intrude_r_acc,
+                                obstacle_can_intrude_c_1_x,
+                            )
+                    if cost < best_compromise_total_cost and not intrudes:
                         best_compromise_total_cost = cost
                         best_compromise = node
                 path = rrt._get_path(best_compromise)
