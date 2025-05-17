@@ -39,7 +39,8 @@ class DiffDriveRRTStar:
         max_iter: int = 10000,
         goal_tolerance=0.1,
         use_kdtree: bool = True,
-        informed: bool = True
+        informed: bool = False,
+        exit_check_interval: int = 10
     ):
         self.polygon = polygon
         self.start = Node(start)
@@ -52,10 +53,19 @@ class DiffDriveRRTStar:
         self._kdtree = None
         self.cost_calc = cost_calc
         self.early_exit_condition = early_exit_condition
+        self.exit_interval = exit_check_interval
 
         self.max_vel = self.map.cell_size
         self.search_radius = self.map.cell_size * 5
         self.informed = informed
+        # Precompute reduced control inputs
+        linear_vels = np.linspace(self.max_vel * 0.5, self.max_vel, 2)
+        angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 3)
+        self.control_inputs = [(v, w) for v in linear_vels for w in angular_vels if not (abs(v) < 1e-6 and abs(w) < 1e-6)]
+
+        # Collision cache
+        self._collision_cache = {}
+
         if goal is not None:
             self.best_cost = float("inf")
             self.c_best = None
@@ -67,10 +77,7 @@ class DiffDriveRRTStar:
             dx = (self.goal.pose[0] - self.start.pose[0]) / self.c_min if self.c_min > 0 else 1
             dy = (self.goal.pose[1] - self.start.pose[1]) / self.c_min if self.c_min > 0 else 0
             self.C = np.array([[dx, -dy], [dy, dx]])
-        else:
-            pass
 
-        # Initialize KD-tree if needed
         if self.use_kdtree:
             self._kdtree = CustomKDTree(
                 dimensions=2,
@@ -78,213 +85,177 @@ class DiffDriveRRTStar:
             )
             self._kdtree.add(self.start)
 
-        # Initialize placeholder for timing
         self.elapsed_time: Optional[float] = None
 
-    def _pose_to_xy(self, pose: PoseModel):
-        return (pose[0], pose[1])
+    def _is_collision_free(self, pose: PoseModel) -> bool:
+        key = (round(pose[0],4), round(pose[1],4), round(pose[2],2))
+        if key in self._collision_cache:
+            return self._collision_cache[key]
+        node = Node(pose)
+        free = self.collision_free(node)
+        self._collision_cache[key] = free
+        return free
 
     def random_pose(self) -> PoseModel:
-        if self.goal is not None and self.informed and self.c_best is not None and self.c_best < float("inf"):
+        if self.goal and self.informed and self.c_best is not None and self.c_best < float("inf"):
             c_best, c_min = self.c_best, self.c_min
             if c_best == float("inf") or c_best < c_min:
-                x = random.uniform(0, self.map.width)
-                y = random.uniform(0, self.map.height)
-                theta = random.uniform(-180, 180)
-                return (x, y, theta)
+                return (random.uniform(0, self.map.width), random.uniform(0, self.map.height), random.uniform(-180, 180))
             a = c_best / 2.0
-            b = math.sqrt(c_best**2 - c_min**2) / 2.0 if c_best > c_min else 0.001
+            b = math.sqrt(max(c_best**2 - c_min**2, 1e-6)) / 2.0
             while True:
                 sample = self._sample_unit_ball()
                 point = np.dot(self.C, np.array([a * sample[0], b * sample[1]]))
-                x = point[0] + self.x_center[0]
-                y = point[1] + self.x_center[1]
+                x, y = point + self.x_center
                 if 0 <= x <= self.map.width and 0 <= y <= self.map.height:
-                    theta = random.uniform(-180, 180)
-                    return (x, y, theta)
-        x = random.uniform(0, self.map.width)
-        y = random.uniform(0, self.map.height)
-        theta = random.uniform(-180, 180)
-        return (x, y, theta)
+                    return (x, y, random.uniform(-180, 180))
+        return (random.uniform(0, self.map.width), random.uniform(0, self.map.height), random.uniform(-180, 180))
 
     def nearest_node(self, pose: PoseModel) -> Node:
-        if self.use_kdtree and self._kdtree is not None:
-            result = self._kdtree.query(pose[:2], k=1)
-            if result:
-                return result[0]
-        distances = [self.cost_calc(pose, node.pose) for node in self.tree]
-        return self.tree[int(np.argmin(distances))]
+        if self.use_kdtree and self._kdtree:
+            res = self._kdtree.query(pose[:2], k=1)
+            if res:
+                return res[0]
+        dists = [self.cost_calc(pose, n.pose) for n in self.tree]
+        return self.tree[int(np.argmin(dists))]
 
     def steer(self, from_node: Node, target: PoseModel) -> Node:
-        x0, y0, theta0 = from_node.pose
-        theta0_rad = utils.normalize_angle_radians(math.radians(theta0))
-
-        linear_vels = np.linspace(-self.max_vel*0.5, self.max_vel, 3)
-        angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 5)
-        control_inputs = [(v, w) for v in linear_vels for w in angular_vels]
-
+        x0, y0, th0 = from_node.pose
+        th0_rad = utils.normalize_angle_radians(math.radians(th0))
         best_node = from_node
-        best_distance = float('inf')
-        for v, w in control_inputs:
-            if v == 0 and w == 0:
-                continue
+        best_d = float('inf')
+        for v, w in self.control_inputs:
             if abs(w) < 1e-6:
-                x_new = x0 + v * math.cos(theta0_rad)
-                y_new = y0 + v * math.sin(theta0_rad)
-                theta_new_rad = theta0_rad
+                x1 = x0 + v * math.cos(th0_rad)
+                y1 = y0 + v * math.sin(th0_rad)
+                th1_rad = th0_rad
             else:
-                x_new = x0 + (v / w) * (math.sin(theta0_rad + w) - math.sin(theta0_rad))
-                y_new = y0 - (v / w) * (math.cos(theta0_rad + w) - math.cos(theta0_rad))
-                theta_new_rad = theta0_rad + w
-            theta_new_rad = utils.normalize_angle_radians(theta_new_rad)
-            new_pose = (x_new, y_new, math.degrees(theta_new_rad))
-
-            distance_to_target = self.cost_calc(new_pose, target)
-            temp_node = Node(new_pose)
-            if distance_to_target < best_distance and self.collision_free(temp_node):
-                best_distance = distance_to_target
+                x1 = x0 + (v/w)*(math.sin(th0_rad+w)-math.sin(th0_rad))
+                y1 = y0 - (v/w)*(math.cos(th0_rad+w)-math.cos(th0_rad))
+                th1_rad = th0_rad + w
+            th1 = math.degrees(utils.normalize_angle_radians(th1_rad))
+            new_pose = (x1, y1, th1)
+            d = self.cost_calc(new_pose, target)
+            if d < best_d and self._is_collision_free(new_pose):
+                best_d = d
                 best_node = Node(new_pose, from_node)
                 best_node.cost = from_node.cost + self.cost_calc(from_node.pose, new_pose)
         return best_node
 
     def collision_free(self, node: Node) -> bool:
-        dx, dy, dtheta = (
-            node.pose[0] - self.start.pose[0],
-            node.pose[1] - self.start.pose[1],
-            node.pose[2] - self.start.pose[2],
-        )
-        new_polygon = affinity.rotate(self.polygon, origin=(self.start.pose[0], self.start.pose[1]), angle=dtheta)
-        new_polygon = affinity.translate(new_polygon, xoff=dx, yoff=dy)
-
-        occupied = self.map.polygon_has_collisions(new_polygon)
-        return not occupied
+        dx = node.pose[0] - self.start.pose[0]
+        dy = node.pose[1] - self.start.pose[1]
+        dth = node.pose[2] - self.start.pose[2]
+        poly = affinity.rotate(self.polygon, dth, origin=self.start.pose[:2])
+        poly = affinity.translate(poly, xoff=dx, yoff=dy)
+        return not self.map.polygon_has_collisions(poly)
 
     def near_goal(self, node: Node) -> bool:
-        assert self.goal is not None
         return self.cost_calc(node.pose, self.goal.pose) <= self.goal_tolerance
 
     def get_near_nodes(self, node: Node) -> List[Node]:
-        if self.use_kdtree and self._kdtree is not None:
-            candidates = self._kdtree.query_radius(node.pose[:2], self.search_radius)
-            return [n for n in candidates if n is not node]
+        if self.use_kdtree and self._kdtree:
+            cands = self._kdtree.query_radius(node.pose[:2], self.search_radius)
+            return [n for n in cands if n is not node]
         poses = np.array([n.pose for n in self.tree])
-        node_pose = np.array(node.pose)
-        dists = np.linalg.norm(poses[:, :2] - node_pose[:2], axis=1)
-        return [self.tree[i] for i in np.where(dists < self.search_radius)[0] if self.tree[i] is not node]
+        d = np.linalg.norm(poses[:,:2] - np.array(node.pose)[:2], axis=1)
+        return [self.tree[i] for i in np.where(d < self.search_radius)[0] if self.tree[i] is not node]
 
-    def _sample_unit_ball(self):
-        # Uniform sampling in unit circle
-        a = random.random()
-        b = random.random()
-        r = a ** 0.5
-        theta = 2 * math.pi * b
-        x = r * math.cos(theta)
-        y = r * math.sin(theta)
-        return np.array([x, y])
+    def _sample_unit_ball(self) -> np.ndarray:
+        r = math.sqrt(random.random())
+        theta = 2*math.pi*random.random()
+        return np.array([r*math.cos(theta), r*math.sin(theta)])
 
     def plan(self) -> Optional[List[Node]]:
-        start_time = time.time()
-        best_path = None  # Ajout pour stocker le meilleur chemin
-        for n in range(self.max_iter):
-            rand_config = self.random_pose()
-            if self.goal is not None and random.random() < 0.1:
-                rand_config = self.goal.pose
-            nearest = self.nearest_node(rand_config)
-            new_node = self.steer(nearest, rand_config)
-            if not self.collision_free(new_node):
+        t0 = time.time()
+        best_path = None
+        for i in range(self.max_iter):
+            cfg = self.random_pose()
+            if self.goal and random.random() < 0.1:
+                cfg = self.goal.pose
+            n0 = self.nearest_node(cfg)
+            n1 = self.steer(n0, cfg)
+            if not self._is_collision_free(n1.pose):
                 continue
-            near_nodes = self.get_near_nodes(new_node)
-            best_parent = nearest
-            best_cost = nearest.cost + self.cost_calc(nearest.pose, new_node.pose)
-            for near in near_nodes:
-                potential_cost = near.cost + self.cost_calc(near.pose, new_node.pose)
-                if potential_cost < best_cost and self.collision_free(Node(new_node.pose, near)):
-                    best_parent, best_cost = near, potential_cost
-            new_node.parent = best_parent
-            new_node.cost = best_cost
-            self.tree.append(new_node)
-            if self.use_kdtree:
-                self._kdtree.add(new_node)
-            for near in near_nodes:
-                potential_cost = new_node.cost + self.cost_calc(new_node.pose, near.pose)
-                if potential_cost < near.cost and self.collision_free(Node(near.pose, new_node)):
-                    near.parent, near.cost = new_node, potential_cost
-            if self.goal is not None:
-                
-                if self.near_goal(new_node):
-                    path = self._get_path(new_node)
-                    total_cost = path[-1].cost
+            near = self.get_near_nodes(n1)
+            parent, cost = n0, n0.cost + self.cost_calc(n0.pose, n1.pose)
+            for nbr in near:
+                c2 = nbr.cost + self.cost_calc(nbr.pose, n1.pose)
+                if c2 < cost and self._is_collision_free(n1.pose):
+                    parent, cost = nbr, c2
+            n1.parent, n1.cost = parent, cost
+            self.tree.append(n1)
+            if self.use_kdtree: self._kdtree.add(n1)
+            for nbr in near:
+                c2 = n1.cost + self.cost_calc(n1.pose, nbr.pose)
+                if c2 < nbr.cost and self._is_collision_free(nbr.pose):
+                    nbr.parent, nbr.cost = n1, c2
+            if self.goal:
+                if self.near_goal(n1):
+                    path = self._get_path(n1)
+                    total = path[-1].cost
                     if self.informed:
-                        if total_cost < self.best_cost:
-                            self.best_cost, self.c_best = total_cost, total_cost
-                            best_path = path  # On garde le meilleur chemin trouvé
+                        if total < self.best_cost:
+                            self.best_cost = self.c_best = total
+                            best_path = path
                     else:
-                        self.elapsed_time = time.time() - start_time
+                        self.elapsed_time = time.time() - t0
                         return path
-            elif self.early_exit_condition(new_node, n):
+            elif i % self.exit_interval == 0 and self.early_exit_condition(n1, i):
                 return self.tree
-        # No path found or fin de boucle pour informed
-        self.elapsed_time = time.time() - start_time
-        if self.informed and best_path is not None:
-            return best_path
-        return None
+        self.elapsed_time = time.time() - t0
+        return best_path if self.informed else None
 
     def smooth_path(self, path: List[Node], max_trials: int = 100) -> List[Node]:
-        if len(path) < 3:
-            return path
+        if len(path) < 3: return path
         for _ in range(max_trials):
-            if len(path) < 3:
-                break
-            i = random.randint(0, len(path) - 3)
-            j = random.randint(i + 2, len(path) - 1)
+            if len(path) < 3: break
+            i, j = random.randint(0, len(path)-3), random.randint(2, len(path)-1)
             if self._shortcut_collision_free(path[i], path[j]):
                 path = path[:i+1] + path[j:]
         return path
 
     def _get_path(self, node: Node) -> List[Node]:
-        path, curr = [], node
-        while curr:
-            path.append(curr)
-            curr = curr.parent
+        path = []
+        while node:
+            path.append(node)
+            node = node.parent
         return path[::-1]
 
-    def _shortcut_collision_free(self, node_a: Node, node_b: Node, steps: int = 10) -> bool:
-        x0, y0, t0 = node_a.pose
-        x1, y1, t1 = node_b.pose
+    def _shortcut_collision_free(self, a: Node, b: Node, steps: int = 10) -> bool:
+        x0,y0,t0 = a.pose
+        x1,y1,t1 = b.pose
         for k in range(1, steps):
-            alpha = k / steps
-            x = x0 + alpha * (x1 - x0)
-            y = y0 + alpha * (y1 - y0)
-            theta = t0 + alpha * (t1 - t0)
-            if not self.collision_free(Node((x, y, theta))):
+            alpha = k/steps
+            if not self.collision_free(Node((x0+alpha*(x1-x0), y0+alpha*(y1-y0), t0+alpha*(t1-t0)))):
                 return False
         return True
 
     def plot(self, path: Optional[List[Node]] = None):
-        fig = plt.figure(figsize=(10, 10))
-        for node in self.tree:
-            if node.parent:
-                plt.plot([node.pose[0], node.parent.pose[0]], [node.pose[1], node.parent.pose[1]], 'b-', alpha=0.2)
+        fig = plt.figure(figsize=(8,8))
+        for n in self.tree:
+            if n.parent:
+                plt.plot([n.pose[0], n.parent.pose[0]], [n.pose[1], n.parent.pose[1]], 'b-', alpha=0.2)
         if path:
             xs, ys = zip(*[(n.pose[0], n.pose[1]) for n in path])
             plt.plot(xs, ys, 'g-', linewidth=2)
-        plt.plot(self.start.pose[0], self.start.pose[1], 'bo', markersize=10)
-
-        time_info = f"{self.elapsed_time:.2f}s" if self.elapsed_time is not None else "N/A"
-        if self.goal is not None:
+        plt.plot(self.start.pose[0], self.start.pose[1], 'ro')
+        
+        if self.goal:
             plt.plot(self.goal.pose[0], self.goal.pose[1], 'go', markersize=10)
             title = (
                 f"RRT* Path Planning (informed={self.informed})\n"
                 f"c_best={self.c_best}, c_min={self.c_min:.2f}\n"
-                f"Time: {time_info}"
+                f"Time: {self.elapsed_time:.2f}s"
             )
         else:
-            title = "RRT* Path Planning (no goal)"
-        plt.xlim(0, self.map.width)
-        plt.ylim(0, self.map.height)
-        plt.grid(True)
+            title = (
+                f"RRT* Path Planning (no goal)\n"
+                f"Time: {self.elapsed_time:.2f}s"
+            )
+
         plt.axis('equal')
-        
+        plt.grid(True)
         plt.title(title)
         plt.show()
         plt.close(fig)

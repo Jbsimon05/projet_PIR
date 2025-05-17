@@ -61,7 +61,8 @@ class TestE2E:
 
     def test_stilman_rrt_star(self):
         """Tests Stilman-20005 behavior with RRT* navigation"""  
-
+        profiler = cProfile.Profile()
+        profiler.enable()
         sim = create_sim_from_file(
             simulation_file_path=os.path.abspath(
                 os.path.join(
@@ -85,6 +86,8 @@ class TestE2E:
                 for x in sim.logger
             ]
         ), "Agent robot_0 did not successfully execute any goal."
+        profiler.disable()
+        profiler.dump_stats(file="stats.prof")
 
     def test_minimal_nav_only(self):
         """Tests a minimal scenario with navigation-only behavior"""

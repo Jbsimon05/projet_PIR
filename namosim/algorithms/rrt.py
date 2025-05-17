@@ -149,7 +149,7 @@ class DiffDriveRRT:
             if self.collision_free(new_node):
                 self.tree.append(new_node)
 
-                if self.near_goal(new_node) and n > 2000:
+                if self.near_goal(new_node): #and n > 2000
                     path = self._get_path(new_node)
                     self.elapsed_time = time.time() - start_time
                     return path

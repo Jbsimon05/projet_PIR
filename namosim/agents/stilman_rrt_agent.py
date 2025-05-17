@@ -54,7 +54,7 @@ from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
 from namosim.world.entity import Movability
 from namosim.world.goal import Goal
 from namosim.world.sensors.omniscient_sensor import OmniscientSensor
-from namosim.algorithms.rrt_star import DiffDriveRRTStar
+from namosim.algorithms.rrt import DiffDriveRRT
 
 
 class StilmanRRTAgent(Agent):
@@ -2185,7 +2185,7 @@ class StilmanRRTAgent(Agent):
                 Polygon, combined_polygon.convex_hull
             )
 
-            rrt = DiffDriveRRTStar(
+            rrt = DiffDriveRRT(
                 polygon=robot_obstacle_polygon,
                 start=robot_pose_after_grab,
                 goal=goal_pose,
