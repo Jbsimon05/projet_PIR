@@ -2221,7 +2221,7 @@ class StilmanRRTStarAgent(Agent):
                             new_obstacle_polygon=obstacle_polygon, # TODO : make sure this is correct
                             other_entities_polygons=other_entities_polygons,
                             other_entities_aabb_tree=other_entities_aabb_tree,
-                            robot_inflated_grid=map,
+                            robot_inflated_grid=copy.deepcopy(map),
                             c1_cells=c1_cells,
                             goal_pose=node.pose,
                             goal_cell=self.pose_to_fixed_precision(node.pose)[:2],
@@ -2230,7 +2230,8 @@ class StilmanRRTStarAgent(Agent):
                 self.found_opening = self.found_opening or has_opening
                 if has_opening:
                     self.has_local_openings.append(node)
-                return self.found_opening or iteration > 8000
+                print(self.found_opening, iteration)
+                return self.found_opening and iteration > 2000
 
             rrt = DiffDriveRRTStar(
                 polygon=robot_obstacle_polygon,
@@ -2241,23 +2242,19 @@ class StilmanRRTStarAgent(Agent):
             )
 
             tree = rrt.plan()
+
+            rrt.plot()
             if tree is not None and len(self.has_local_openings) > 0:
                 # Compute best compromise cost among poses with local openings
                 best_compromise = self.has_local_openings[0]
                 best_compromise_total_cost = sorted_cell_to_combined_cost[self.pose_to_fixed_precision(best_compromise.pose)[:2]] + best_compromise.cost
                 for node in self.has_local_openings:
-                    cost = sorted_cell_to_combined_cost[self.pose_to_fixed_precision(node.pose)[:2]] + best_compromise.cost
-                    intrudes = self.polygon_intrudes_components(
-                                grab_config.obstacle.polygon,
-                                map,
-                                r_acc_cells,
-                                ccs_data,
-                                obstacle_can_intrude_r_acc,
-                                obstacle_can_intrude_c_1_x,
-                            )
-                    if cost < best_compromise_total_cost and not intrudes:
+                    key = self.pose_to_fixed_precision(node.pose)[:2]
+                    cost = sorted_cell_to_combined_cost.get(key, float("inf")) + best_compromise.cost
+                    if cost < best_compromise_total_cost:
                         best_compromise_total_cost = cost
                         best_compromise = node
+            
                 path = rrt._get_path(best_compromise)
                 poses = [x.pose for x in path]
                 path = TransitPath.from_poses(
@@ -2347,6 +2344,7 @@ class StilmanRRTStarAgent(Agent):
 
             nodes = rrt.plan()
 
+            rrt.plot()
             if nodes:
                 poses = [x.pose for x in nodes]
                 path = TransitPath.from_poses(

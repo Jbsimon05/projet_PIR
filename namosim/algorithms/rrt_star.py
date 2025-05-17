@@ -37,7 +37,7 @@ class DiffDriveRRTStar:
         map: BinaryOccupancyGrid,
         cost_calc = default_cost_calc,
         early_exit_condition = default_exit_condition,
-        max_iter: int = 10000,
+        max_iter: int = 5000,
         goal_tolerance=0.1,
         use_kdtree: bool = True,
         informed: bool = True
@@ -211,7 +211,7 @@ class DiffDriveRRTStar:
                 if potential_cost < near.cost and self.collision_free(Node(near.pose, new_node)):
                     near.parent, near.cost = new_node, potential_cost
             if self.goal is not None:
-
+                
                 if self.near_goal(new_node):
                     path = self._get_path(new_node)
                     total_cost = path[-1].cost
@@ -270,18 +270,22 @@ class DiffDriveRRTStar:
             xs, ys = zip(*[(n.pose[0], n.pose[1]) for n in path])
             plt.plot(xs, ys, 'g-', linewidth=2)
         plt.plot(self.start.pose[0], self.start.pose[1], 'bo', markersize=10)
+
+        time_info = f"{self.elapsed_time:.2f}s" if self.elapsed_time is not None else "N/A"
         if self.goal is not None:
             plt.plot(self.goal.pose[0], self.goal.pose[1], 'go', markersize=10)
+            title = (
+                f"RRT* Path Planning (informed={self.informed})\n"
+                f"c_best={self.c_best}, c_min={self.c_min:.2f}\n"
+                f"Time: {time_info}"
+            )
+        else:
+            title = "RRT* Path Planning (no goal)"
         plt.xlim(0, self.map.width)
         plt.ylim(0, self.map.height)
         plt.grid(True)
         plt.axis('equal')
-        time_info = f"{self.elapsed_time:.2f}s" if self.elapsed_time is not None else "N/A"
-        title = (
-            f"RRT* Path Planning (informed={self.informed})\n"
-            f"c_best={self.c_best}, c_min={self.c_min:.2f}\n"
-            f"Time: {time_info}"
-        )
+        
         plt.title(title)
         plt.show()
         plt.close(fig)
