@@ -2230,7 +2230,6 @@ class StilmanRRTStarAgent(Agent):
                 self.found_opening = self.found_opening or has_opening
                 if has_opening:
                     self.has_local_openings.append(node)
-                print(self.found_opening, iteration)
                 return self.found_opening and iteration > 1000
 
             rrt = DiffDriveRRTStar(
