@@ -10,13 +10,12 @@ from namosim.data_models import PoseModel
 from namosim.utils import utils
 from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
 from shapely import affinity
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon
 
 from namosim.algorithms.kd_tree import KDTree as CustomKDTree
 
 def default_cost_calc(p1:PoseModel, p2:PoseModel) -> float:
     return utils.distance_between_poses(p1, p2)
-
 
 
 @dataclass
@@ -37,7 +36,7 @@ class DiffDriveRRTStar:
         map: BinaryOccupancyGrid,
         cost_calc = default_cost_calc,
         early_exit_condition = default_exit_condition,
-        max_iter: int = 5000,
+        max_iter: int = 10000,
         goal_tolerance=0.1,
         use_kdtree: bool = True,
         informed: bool = True
@@ -154,8 +153,8 @@ class DiffDriveRRTStar:
             node.pose[1] - self.start.pose[1],
             node.pose[2] - self.start.pose[2],
         )
-        new_polygon = affinity.translate(self.polygon, xoff=dx, yoff=dy)
-        new_polygon = affinity.rotate(new_polygon, angle=dtheta, origin=Point(node.pose[0], node.pose[1]))
+        new_polygon = affinity.rotate(self.polygon, origin=(self.start.pose[0], self.start.pose[1]), angle=dtheta)
+        new_polygon = affinity.translate(new_polygon, xoff=dx, yoff=dy)
 
         occupied = self.map.polygon_has_collisions(new_polygon)
         return not occupied

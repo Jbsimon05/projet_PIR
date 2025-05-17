@@ -119,8 +119,8 @@ class DiffDriveRRT:
             node.pose[1] - self.start.pose[1],
             node.pose[2] - self.start.pose[2],
         )
-        new_polygon = affinity.translate(self.polygon, xoff=dx, yoff=dy)
-        new_polygon = affinity.rotate(new_polygon, angle=dtheta)
+        new_polygon = affinity.rotate(self.polygon, origin=(self.start.pose[0], self.start.pose[1]), angle=dtheta)
+        new_polygon = affinity.translate(new_polygon, xoff=dx, yoff=dy)
 
         occupied = self.map.polygon_has_collisions(new_polygon)
         return not occupied
