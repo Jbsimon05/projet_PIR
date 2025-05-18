@@ -13,6 +13,9 @@ from shapely import affinity
 from shapely.geometry import Polygon
 
 from namosim.algorithms.kd_tree import KDTree as CustomKDTree
+from visualization_msgs.msg import Marker
+from std_msgs.msg import ColorRGBA
+from geometry_msgs.msg import Point
 
 def default_cost_calc(p1:PoseModel, p2:PoseModel) -> float:
     return utils.distance_between_poses(p1, p2)
@@ -259,3 +262,20 @@ class DiffDriveRRTStar:
         plt.title(title)
         plt.show()
         plt.close(fig)
+
+    def get_tree_marker(self, frame_id="map", ns="rrt_star_tree", color=(0.0, 0.0, 1.0, 0.2)):
+        marker = Marker()
+        marker.header.frame_id = frame_id
+        marker.ns = ns
+        marker.id = 0
+        marker.type = Marker.LINE_LIST
+        marker.action = Marker.ADD
+        marker.scale.x = 0.01  # line width
+        marker.color = ColorRGBA(*color)
+        marker.points = []
+        for node in self.tree:
+            if node.parent:
+                p1 = Point(x=node.pose[0], y=node.pose[1], z=0)
+                p2 = Point(x=node.parent.pose[0], y=node.parent.pose[1], z=0)
+                marker.points.extend([p1, p2])
+        return marker
