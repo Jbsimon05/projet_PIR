@@ -2219,7 +2219,7 @@ class StilmanRRTStarAgent(Agent):
             if tree is not None and len(self.has_local_openings) > 0:
                 # Compute best compromise cost among poses with local openings
                 best_compromise = self.has_local_openings[0]
-                best_compromise_total_cost = sorted_cell_to_combined_cost[self.pose_to_fixed_precision(best_compromise.pose)[:2]] + best_compromise.cost
+                best_compromise_total_cost = sorted_cell_to_combined_cost.get(self.pose_to_fixed_precision(best_compromise.pose)[:2], float("inf")) + best_compromise.cost
                 for node in self.has_local_openings:
                     key = self.pose_to_fixed_precision(node.pose)[:2]
                     cost = sorted_cell_to_combined_cost.get(key, float("inf")) + best_compromise.cost
