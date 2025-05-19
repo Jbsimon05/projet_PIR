@@ -54,7 +54,7 @@ from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
 from namosim.world.entity import Movability
 from namosim.world.goal import Goal
 from namosim.world.sensors.omniscient_sensor import OmniscientSensor
-from namosim.algorithms.rrt_star import DiffDriveRRTStar
+from namosim.algorithms.rrt_star import DiffDriveRRTStar, Node
 
 
 class StilmanRRTStarAgent(Agent):
@@ -2015,58 +2015,19 @@ class StilmanRRTStarAgent(Agent):
             bound_quantile = sorted_cell_to_combined_cost[
                 cells_sorted_by_combined_cost[bound_quantile_index]
             ]
-            use_best_transfer = False
-            if use_best_transfer:
-                # 1. Find the best obstacle transfer end configuration, that is, the one with the best compromise cost
-                best_transfer_end_configuration = self.find_best_transfer_end_configuration(
-                    robot_pose=robot_pose,
-                    robot_polygon=robot_polygon,
-                    agent_id=agent_id,
-                    obstacle_uid=obstacle_uid,
-                    obstacle_pose=obstacle_pose,
-                    obstacle_polygon=obstacle_polygon,
-                    goal_pose=goal_pose,
-                    goal_cell=goal_cell,
-                    other_entities_polygons=other_entities_polygons,
-                    other_entities_aabb_tree=other_entities_aabb_tree,
-                    robot_inflated_grid=robot_inflated_grid,
-                    ordered_cells_by_cost=cells_sorted_by_combined_cost,
-                    r_acc_cells=r_acc_cells,
-                    c_1_cells_set=c_1_cells_set,
-                    ccs_data=ccs_data,
-                    init_robot_manip_configs=grab_configs,
-                    ros_publisher=ros_publisher,
-                    gscore=None,
-                    close_set=None,
-                    check_new_local_opening_before_global=check_new_local_opening_before_global,
-                    obstacle_can_intrude_r_acc=obstacle_can_intrude_r_acc,
-                    obstacle_can_intrude_c_1_x=obstacle_can_intrude_c_1_x,
-                )
-
-                if best_transfer_end_configuration is None:
-                    return w_t_next, None
-
-                transfer_path = self.rrt_for_manip_search(
-                    grab_configs=grab_configs,
-                    obstacle_uid=obstacle_uid,
-                    goal=best_transfer_end_configuration,
-                    other_entities_polygons=other_entities_polygons,
-                    map=w_t.map,
-                )
-            else:
-                transfer_path = self.rrt_for_manip_search_no_goal(
-                    grab_configs=grab_configs,
-                    agent_id=agent_id,
-                    other_entities_aabb_tree=other_entities_aabb_tree,
-                    c1_cells=c_1_cells_set,
-                    check_for_local_opening=check_new_local_opening_before_global,
-                    obstacle_uid=obstacle_uid,
-                    other_entities_polygons=other_entities_polygons,
-                    map=w_t.map,
-                    r_acc_cells=r_acc_cells,
-                    ccs_data=ccs_data,
-                    sorted_cell_to_combined_cost=sorted_cell_to_combined_cost
-                )
+            transfer_path = self.rrt_for_manip_search_no_goal(
+                grab_configs=grab_configs,
+                agent_id=agent_id,
+                other_entities_aabb_tree=other_entities_aabb_tree,
+                c1_cells=c_1_cells_set,
+                check_for_local_opening=check_new_local_opening_before_global,
+                obstacle_uid=obstacle_uid,
+                other_entities_polygons=other_entities_polygons,
+                map=w_t.map,
+                r_acc_cells=r_acc_cells,
+                ccs_data=ccs_data,
+                sorted_cell_to_combined_cost=sorted_cell_to_combined_cost
+            )
 
             # Don't forget to update w_t_next with transfer end state
             if transfer_path:
@@ -2209,10 +2170,22 @@ class StilmanRRTStarAgent(Agent):
                 Polygon, combined_polygon.convex_hull
             )
 
+            robot_collision_rrt = DiffDriveRRTStar(
+                polygon=robot_polygon_after_grab,
+                start=robot_pose_after_grab,
+                goal=None,
+                map=map,
+            )
+
             self.found_opening = False
             self.has_local_openings = []
+            release_action = ba.Release(
+                entity_uid=obstacle_uid,
+                distance=-(self.grab_start_distance - self.grab_end_distance),
+            )
             def early_exit_condition(node, iteration:int) -> bool:
-                has_opening = self.is_there_opening_to_c1(
+                can_release = robot_collision_rrt.collision_free(Node(release_action.predict_pose(node.pose, node.pose),None, node.cost))
+                has_opening = can_release and self.is_there_opening_to_c1(
                             check_for_local_opening=check_for_local_opening,
                             agent_id=agent_id,
                             robot_cell=grab_config.robot.cell_in_grid,
@@ -2292,7 +2265,6 @@ class StilmanRRTStarAgent(Agent):
                     obstacle_poses.append(next_obstacle_pose)
                     robot_polygons.append(next_robot_polygon)
                     obstacle_polygons.append(next_obstacle_polygon)
-
                 robot_path = RawPath(robot_poses, robot_polygons)
                 obstacle_path = RawPath(obstacle_poses, obstacle_polygons)
 
