@@ -2215,7 +2215,7 @@ class StilmanRRTStarAgent(Agent):
 
             tree = rrt.plan()
 
-            #rrt.plot()
+            rrt.plot()
             if tree is not None and len(self.has_local_openings) > 0:
                 # Compute best compromise cost among poses with local openings
                 best_compromise = self.has_local_openings[0]

@@ -39,10 +39,10 @@ class DiffDriveRRTStar:
         map: BinaryOccupancyGrid,
         cost_calc = default_cost_calc,
         early_exit_condition = default_exit_condition,
-        max_iter: int = 10000,
+        max_iter: int = 5000,
         goal_tolerance=0.1,
         use_kdtree: bool = True,
-        informed: bool = False,
+        informed: bool = True,
         exit_check_interval: int = 10
     ):
         self.polygon = polygon
@@ -62,7 +62,7 @@ class DiffDriveRRTStar:
         self.search_radius = self.map.cell_size * 5
         self.informed = informed
         # Precompute reduced control inputs
-        linear_vels = np.linspace(self.max_vel * 0.5, self.max_vel, 2)
+        linear_vels = np.linspace(-self.max_vel * 0.5, self.max_vel, 2)
         angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 3)
         self.control_inputs = [(v, w) for v in linear_vels for w in angular_vels if not (abs(v) < 1e-6 and abs(w) < 1e-6)]
 
@@ -100,19 +100,20 @@ class DiffDriveRRTStar:
         return free
 
     def random_pose(self) -> PoseModel:
-        if self.goal and self.informed and self.c_best is not None and self.c_best < float("inf"):
-            c_best, c_min = self.c_best, self.c_min
-            if c_best == float("inf") or c_best < c_min:
-                return (random.uniform(0, self.map.width), random.uniform(0, self.map.height), random.uniform(-180, 180))
-            a = c_best / 2.0
-            b = math.sqrt(max(c_best**2 - c_min**2, 1e-6)) / 2.0
+        if self.goal and self.informed and self.c_best not in (None, float("inf")):
+            a = self.c_best / 2.0
+            b = math.sqrt(max(self.c_best**2 - self.c_min**2, 1e-6)) / 2.0
             while True:
-                sample = self._sample_unit_ball()
-                point = np.dot(self.C, np.array([a * sample[0], b * sample[1]]))
-                x, y = point + self.x_center
+                x_ball, y_ball = self._sample_unit_ball()
+                # appliquer la matrice de rotation C
+                x, y = (self.C @ np.array([a * x_ball, b * y_ball])) + self.x_center
                 if 0 <= x <= self.map.width and 0 <= y <= self.map.height:
-                    return (x, y, random.uniform(-180, 180))
-        return (random.uniform(0, self.map.width), random.uniform(0, self.map.height), random.uniform(-180, 180))
+                    theta = random.uniform(-180, 180)
+                    return (float(x), float(y), theta)
+        # tirage uniforme global (cas non informé ou avant 1er chemin)
+        return (random.uniform(0, self.map.width),
+                random.uniform(0, self.map.height),
+                random.uniform(-180, 180))
 
     def nearest_node(self, pose: PoseModel) -> Node:
         if self.use_kdtree and self._kdtree:
