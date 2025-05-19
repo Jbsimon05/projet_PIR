@@ -1811,73 +1811,19 @@ class StilmanRRTStarAgent(Agent):
         robot_inflated_grid.deactivate_entities([obstacle_uid])
 
         # Use Dijkstra algorithm to compute a transfer path that allows for an opening to be created
-        (
-            path_found,
-            transfer_end_configuration,
-            came_from,
-            _close_set,
-            gscore,
-            _,
-        ) = self.dijkstra_for_manip_search(
-            start=transfer_start_configs,
-            agent_id=agent_id,
-            obstacle_uid=obstacle_uid,
-            obstacle_polygon=obstacle_polygon,
-            other_entities_polygons=other_entities_polygons,
-            other_entities_aabb_tree=other_entities_aabb_tree,
-            robot_inflated_grid=robot_inflated_grid,
-            inflated_grid_by_obstacle=inflated_grid_by_obstacle,
-            r_acc_cells=r_acc_cells,
-            c_1_cells_set=c_1_cells_set,
-            ccs_data=ccs_data,
-            check_new_local_opening_before_global=check_new_local_opening_before_global,
-            overall_goal_pose=goal_pose,
-            overall_goal_cell=goal_cell,
-            ros_publisher=ros_publisher,
-            obstacle_can_intrude_r_acc=obstacle_can_intrude_r_acc,
-            obstacle_can_intrude_c_1_x=obstacle_can_intrude_c_1_x,
-        )
-
-        if path_found:
-            if transfer_end_configuration is None:
-                raise Exception("Manip path found but transfer end config is None")
-
-            raw_path: t.List[
-                RobotObstacleConfiguration
-            ] = graph_search.reconstruct_path(
-                came_from, transfer_end_configuration
-            )  # type: ignore
-
-            robot_config_after_release = self.get_robot_config_after_release(
-                robot_inflated_grid,
-                raw_path[-1].robot.floating_point_pose,
-                raw_path[-1].robot.polygon,
-                agent_id,
-                obstacle_uid,
-                other_entities_polygons,
-                other_entities_aabb_tree,
-            )
-
-            if robot_config_after_release is None:
-                raise Exception(
-                    "Manip path found but failed to find next transit start config"
-                )
-
-            transfer_path_phys_cost = gscore[transfer_end_configuration] + self.g(
-                transfer_end_configuration.robot.floating_point_pose,
-                robot_config_after_release.floating_point_pose,
-                is_transfer=True,
-            )
-            transfer_path = self.get_transfer_path_from_configs(
-                transfer_configurations=raw_path,
-                robot_config_after_release=robot_config_after_release,
+        transfer_path = self.rrt_for_manip_search_no_goal(
+                grab_configs=transfer_start_configs,
+                agent_id=agent_id,
+                other_entities_aabb_tree=other_entities_aabb_tree,
+                c1_cells=c_1_cells_set,
+                check_for_local_opening=check_new_local_opening_before_global,
                 obstacle_uid=obstacle_uid,
-                phys_cost=transfer_path_phys_cost,
-            )
-        else:
-            # If after exhausting all possible configurations, none opens a path to the connected component,
-            # return None
-            transfer_path = None
+                other_entities_polygons=other_entities_polygons,
+                map=w_t.map,
+                r_acc_cells=r_acc_cells,
+                ccs_data=ccs_data,
+                sorted_cell_to_combined_cost={}
+        )
 
         # Don't forget to update w_t_next with transfer end state
         if transfer_path:
@@ -1987,7 +1933,10 @@ class StilmanRRTStarAgent(Agent):
 
         try:
             robot_inflated_grid.deactivate_entities([obstacle_uid])
-
+            map_copy = copy.deepcopy(w_t.map)
+            map_copy.update_polygons(other_entities_polygons)
+            map_copy.deactivate_entities([obstacle_uid])
+            map_copy.to_image().save(f"map{obstacle_uid}.png")
             # Get potentially accessible cells for obstacle ordered by associated combined costs
             (
                 cells_sorted_by_combined_cost,
@@ -2023,7 +1972,7 @@ class StilmanRRTStarAgent(Agent):
                 check_for_local_opening=check_new_local_opening_before_global,
                 obstacle_uid=obstacle_uid,
                 other_entities_polygons=other_entities_polygons,
-                map=w_t.map,
+                map=map_copy,
                 r_acc_cells=r_acc_cells,
                 ccs_data=ccs_data,
                 sorted_cell_to_combined_cost=sorted_cell_to_combined_cost
@@ -2215,14 +2164,16 @@ class StilmanRRTStarAgent(Agent):
 
             tree = rrt.plan()
 
-            #rrt.plot()
+            # rrt.plot()
             if tree is not None and len(self.has_local_openings) > 0:
                 # Compute best compromise cost among poses with local openings
                 best_compromise = self.has_local_openings[0]
-                best_compromise_total_cost = sorted_cell_to_combined_cost.get(self.pose_to_fixed_precision(best_compromise.pose)[:2], float("inf")) + best_compromise.cost
+                # 2 obstacle test only works with no node distance cost added, minimal test only works with + best_compromise.cost there
+                best_compromise_total_cost = sorted_cell_to_combined_cost.get(self.pose_to_fixed_precision(best_compromise.pose)[:2], 1000.0)
                 for node in self.has_local_openings:
                     key = self.pose_to_fixed_precision(node.pose)[:2]
-                    cost = sorted_cell_to_combined_cost.get(key, float("inf")) + best_compromise.cost
+                    # and + best_compromise.cost here
+                    cost = sorted_cell_to_combined_cost.get(key, 1000.0)
                     if cost < best_compromise_total_cost:
                         best_compromise_total_cost = cost
                         best_compromise = node

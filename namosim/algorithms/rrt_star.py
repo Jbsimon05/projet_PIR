@@ -52,6 +52,8 @@ class DiffDriveRRTStar:
         self.max_iter = max_iter
         self.goal_tolerance = goal_tolerance
         self.tree: List[Node] = [self.start]
+        self.rejected = []
+        self.accepted = []
         self.use_kdtree = use_kdtree
         self._kdtree = None
         self.cost_calc = cost_calc
@@ -62,7 +64,7 @@ class DiffDriveRRTStar:
         self.search_radius = self.map.cell_size * 5
         self.informed = informed
         # Precompute reduced control inputs
-        linear_vels = np.linspace(self.max_vel * 0.5, self.max_vel, 2)
+        linear_vels = np.linspace(-self.max_vel * 0.5, self.max_vel, 2)
         angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 3)
         self.control_inputs = [(v, w) for v in linear_vels for w in angular_vels if not (abs(v) < 1e-6 and abs(w) < 1e-6)]
 
@@ -160,7 +162,10 @@ class DiffDriveRRTStar:
                     best_d = d
                     best_node = Node(new_pose, from_node)
                     best_node.cost = from_node.cost + self.cost_calc(from_node.pose, new_pose)
-
+        if best_node.pose == from_node.pose:
+            self.rejected.append(target)
+        else:
+            self.accepted.append(target)
         return best_node
 
     def collision_free(self, node: Node) -> bool:
@@ -254,6 +259,10 @@ class DiffDriveRRTStar:
 
     def plot(self, path: Optional[List[Node]] = None):
         fig = plt.figure(figsize=(8,8))
+        for accepted in self.rejected:
+            plt.plot(accepted[0], accepted[1], 'go', markersize=10)
+        for accepted in self.accepted:
+            plt.plot(accepted[0], accepted[1], 'ro', markersize=10)
         for n in self.tree:
             if n.parent:
                 plt.plot([n.pose[0], n.parent.pose[0]], [n.pose[1], n.parent.pose[1]], 'b-', alpha=0.2)
@@ -272,7 +281,8 @@ class DiffDriveRRTStar:
         else:
             title = (
                 f"RRT* Path Planning (no goal)\n"
-                f"Time: {self.elapsed_time:.2f}s"
+                f"Time: {self.elapsed_time if self.elapsed_time is not None else 1.0:.2f}s\n"
+                f"tree length : {len(self.tree)}"
             )
 
         plt.axis('equal')
