@@ -237,6 +237,44 @@ class TestE2E:
                 for x in sim.logger
             ]
         )
+    def test_1_robot_2_obstacles_social_rrt(self):
+        sim = create_sim_from_file(
+            simulation_file_path=os.path.join(
+                self.scenarios_folder, "1_robot_2_obstacles_social_rrt.svg"
+            )
+        )
+        sim.run()
+        assert any(
+            [
+                x.message.startswith("Agent robot_0 finished executing all its goals.")
+                for x in sim.logger
+            ]
+        )
+        assert any(
+            [
+                x.message.startswith("Agent robot_0 successfully executed goal")
+                for x in sim.logger
+            ]
+        )
+    def test_1_robot_2_obstacles_social_rrt_star(self):
+        sim = create_sim_from_file(
+            simulation_file_path=os.path.join(
+                self.scenarios_folder, "1_robot_2_obstacles_social_rrt_star.svg"
+            )
+        )
+        sim.run()
+        assert any(
+            [
+                x.message.startswith("Agent robot_0 finished executing all its goals.")
+                for x in sim.logger
+            ]
+        )
+        assert any(
+            [
+                x.message.startswith("Agent robot_0 successfully executed goal")
+                for x in sim.logger
+            ]
+        )
 
     def test_repulsive_dr_fail_b(self):
         sim = create_sim_from_file(
