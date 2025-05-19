@@ -146,6 +146,8 @@ class Simulator:
         self._paused = False
         self._step = False
 
+        self.total_think_time = 0.0  # Initialiser le temps total cumulé
+
     def step(
         self, active_agents: set[str], trace_polygons: t.List[Polygon], step_count: int
     ) -> t.Tuple[set[str], t.List[Polygon], int]:
@@ -622,6 +624,29 @@ class Simulator:
 
         return agent_uid_to_next_action
 
+    def save_think_times(self, think_durations: t.Dict[str, float], step_count: int):
+        """Sauvegarde le temps total de think et le temps cumulé dans un fichier."""
+        think_times_path = os.path.join(self.logs_dir, "think_times.json")
+        step_total_think_time = sum(think_durations.values())  # Calculer le temps total pour cette étape
+        self.total_think_time += step_total_think_time  # Ajouter au temps cumulé
+
+        data = {
+            "step": step_count,
+            "think_durations": think_durations,
+            "step_total_think_time": step_total_think_time,
+            "cumulative_total_think_time": self.total_think_time,  # Ajouter le temps cumulé
+        }
+
+        if os.path.exists(think_times_path):
+            with open(think_times_path, "r") as f:
+                existing_data = json.load(f)
+            existing_data.append(data)
+        else:
+            existing_data = [data]
+
+        with open(think_times_path, "w") as f:
+            json.dump(existing_data, f, indent=4)
+
     def think(
         self,
         active_agents: t.Set[str],
@@ -688,6 +713,9 @@ class Simulator:
             active_agents=active_agents,
             trace_polygons=trace_polygons,
         )
+
+        # Sauvegarder le temps total de think
+        self.save_think_times(think_durations, step_count)
 
         return actions, think_results, think_durations
 
