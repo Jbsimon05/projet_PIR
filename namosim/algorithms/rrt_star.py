@@ -119,27 +119,45 @@ class DiffDriveRRTStar:
         dists = [self.cost_calc(pose, n.pose) for n in self.tree]
         return self.tree[int(np.argmin(dists))]
 
-    def steer(self, from_node: Node, target: PoseModel) -> Node:
+    def steer(self, from_node: Node, target: PoseModel, step_size=0.02) -> Node:
         x0, y0, th0 = from_node.pose
         th0_rad = utils.normalize_angle_radians(math.radians(th0))
         best_node = from_node
         best_d = float('inf')
+
         for v, w in self.control_inputs:
             if abs(w) < 1e-6:
                 x1 = x0 + v * math.cos(th0_rad)
                 y1 = y0 + v * math.sin(th0_rad)
                 th1_rad = th0_rad
             else:
-                x1 = x0 + (v/w)*(math.sin(th0_rad+w)-math.sin(th0_rad))
-                y1 = y0 - (v/w)*(math.cos(th0_rad+w)-math.cos(th0_rad))
+                x1 = x0 + (v/w)*(math.sin(th0_rad+w) - math.sin(th0_rad))
+                y1 = y0 - (v/w)*(math.cos(th0_rad+w) - math.cos(th0_rad))
                 th1_rad = th0_rad + w
-            th1 = math.degrees(utils.normalize_angle_radians(th1_rad))
-            new_pose = (x1, y1, th1)
-            d = self.cost_calc(new_pose, target)
-            if d < best_d and self._is_collision_free(new_pose):
-                best_d = d
-                best_node = Node(new_pose, from_node)
-                best_node.cost = from_node.cost + self.cost_calc(from_node.pose, new_pose)
+
+            new_pose = (x1, y1, math.degrees(utils.normalize_angle_radians(th1_rad)))
+            dx, dy = x1 - x0, y1 - y0
+            dth = utils.normalize_angle_radians(th1_rad - th0_rad)
+            dist = np.hypot(dx, dy)
+            n_steps = max(1, int(dist / step_size))
+            free_path = True
+
+            for i in range(n_steps + 1):
+                t = i / n_steps
+                xi = x0 + t * dx
+                yi = y0 + t * dy
+                thi = utils.normalize_angle_radians(th0_rad + t * dth)
+                if not self._is_collision_free((xi, yi, math.degrees(thi))):
+                    free_path = False
+                    break
+
+            if free_path:
+                d = self.cost_calc(new_pose, target)
+                if d < best_d:
+                    best_d = d
+                    best_node = Node(new_pose, from_node)
+                    best_node.cost = from_node.cost + self.cost_calc(from_node.pose, new_pose)
+
         return best_node
 
     def collision_free(self, node: Node) -> bool:
