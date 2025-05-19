@@ -3,6 +3,18 @@ import unittest
 
 from namosim.simulator import create_sim_from_file
 import cProfile
+from rclpy.node import Node as ROSNode
+from visualization_msgs.msg import Marker
+
+
+class RRTStarVisualizer(ROSNode):
+    def __init__(self):
+        super().__init__('rrt_star_visualizer')
+        self.publisher = self.create_publisher(Marker, 'rrt_star_tree', 10)
+
+    def publish_tree(self, rrt_star):
+        marker = rrt_star.get_tree_marker()
+        self.publisher.publish(marker)
 
 
 class TestE2E:
@@ -34,6 +46,7 @@ class TestE2E:
         )
         profiler.disable()
         profiler.dump_stats(file="stats.prof")
+
     def test_minimal_stilman_rrt(self):
         profiler = cProfile.Profile()
         profiler.enable()
@@ -58,9 +71,8 @@ class TestE2E:
         profiler.disable()
         profiler.dump_stats(file="stats.prof")
 
-
     def test_stilman_rrt_star(self):
-        """Tests Stilman-20005 behavior with RRT* navigation"""  
+        """Tests Stilman-20005 behavior with RRT* navigation"""
         profiler = cProfile.Profile()
         profiler.enable()
         sim = create_sim_from_file(
