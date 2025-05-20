@@ -42,8 +42,9 @@ class DiffDriveRRTStar:
         max_iter: int = 5000,
         goal_tolerance=0.1,
         use_kdtree: bool = True,
-        informed: bool = True,
-        exit_check_interval: int = 10
+        informed: bool = False,
+        exit_check_interval: int = 10,
+        use_rrt_smart: bool = True  # New parameter to enable/disable RRT*-Smart
     ):
         self.polygon = polygon
         self.start = Node(start)
@@ -59,6 +60,10 @@ class DiffDriveRRTStar:
         self.cost_calc = cost_calc
         self.early_exit_condition = early_exit_condition
         self.exit_interval = exit_check_interval
+        self.use_rrt_smart = use_rrt_smart
+        self.beacons = [] if self.use_rrt_smart else None  # Beacons for intelligent sampling
+        self.biasing_interval = 10 if self.use_rrt_smart else None  # Interval for biased sampling
+        self.biasing_radius = self.map.cell_size * 2 if self.use_rrt_smart else None  # Radius for beacon sampling
 
         self.max_vel = self.map.cell_size
         self.search_radius = self.map.cell_size * 5
@@ -193,11 +198,40 @@ class DiffDriveRRTStar:
         theta = 2*math.pi*random.random()
         return np.array([r*math.cos(theta), r*math.sin(theta)])
 
+    def optimize_path(self, path: List[Node]) -> List[Node]:
+        """Optimize the path by directly connecting visible nodes."""
+        optimized_path = [path[0]]
+        for i in range(1, len(path)):
+            if self._shortcut_collision_free(optimized_path[-1], path[i]):
+                continue
+            optimized_path.append(path[i - 1])
+        optimized_path.append(path[-1])
+        return optimized_path
+
+    def update_beacons(self, path: List[Node]):
+        """Update beacons based on the optimized path."""
+        self.beacons = [node.pose for node in path]
+
+    def biased_random_pose(self) -> PoseModel:
+        """Generate a random pose biased towards beacons."""
+        if self.use_rrt_smart and self.beacons and random.random() < 0.5:  # 50% chance of biased sampling
+            beacon = random.choice(self.beacons)
+            x = random.uniform(beacon[0] - self.biasing_radius, beacon[0] + self.biasing_radius)
+            y = random.uniform(beacon[1] - self.biasing_radius, beacon[1] + self.biasing_radius)
+            theta = random.uniform(-180, 180)
+            return (x, y, theta)
+        return self.random_pose()
+
     def plan(self) -> Optional[List[Node]]:
+        """Modified plan method to include optional RRT*-Smart features."""
         t0 = time.time()
         best_path = None
         for i in range(self.max_iter):
-            cfg = self.random_pose()
+            cfg = (
+                self.biased_random_pose()
+                if self.use_rrt_smart and self.beacons and i % self.biasing_interval == 0
+                else self.random_pose()
+            )
             if self.goal and random.random() < 0.1:
                 cfg = self.goal.pose
             n0 = self.nearest_node(cfg)
@@ -220,27 +254,25 @@ class DiffDriveRRTStar:
             if self.goal:
                 if self.near_goal(n1):
                     path = self._get_path(n1)
-                    total = path[-1].cost
-                    if self.informed:
-                        if total < self.best_cost:
-                            self.best_cost = self.c_best = total
-                            best_path = path
+                    if self.use_rrt_smart:
+                        optimized_path = self.optimize_path(path)
+                        if not best_path or optimized_path[-1].cost < best_path[-1].cost:
+                            best_path = optimized_path
+                            self.update_beacons(optimized_path)
+                            if not self.informed:
+                                self.elapsed_time = time.time() - t0
+                                return optimized_path
                     else:
-                        self.elapsed_time = time.time() - t0
-                        return path
+                        if not best_path or path[-1].cost < best_path[-1].cost:
+                            best_path = path
+                            if not self.informed:
+                                self.elapsed_time = time.time() - t0
+                                return path
             elif i % self.exit_interval == 0 and self.early_exit_condition(n1, i):
                 return self.tree
         self.elapsed_time = time.time() - t0
         return best_path if self.informed else None
 
-    def smooth_path(self, path: List[Node], max_trials: int = 100) -> List[Node]:
-        if len(path) < 3: return path
-        for _ in range(max_trials):
-            if len(path) < 3: break
-            i, j = random.randint(0, len(path)-3), random.randint(2, len(path)-1)
-            if self._shortcut_collision_free(path[i], path[j]):
-                path = path[:i+1] + path[j:]
-        return path
 
     def _get_path(self, node: Node) -> List[Node]:
         path = []
