@@ -121,7 +121,7 @@ class DiffDriveRRTStar:
         return (random.uniform(0, self.map.width),
                 random.uniform(0, self.map.height),
                 random.uniform(-180, 180))
-
+    
     def nearest_node(self, pose: PoseModel) -> Node:
         if self.use_kdtree and self._kdtree:
             res = self._kdtree.query(pose[:2], k=1)
@@ -169,9 +169,9 @@ class DiffDriveRRTStar:
                     best_node = Node(new_pose, from_node)
                     best_node.cost = from_node.cost + self.cost_calc(from_node.pose, new_pose)
         if best_node.pose == from_node.pose:
-            self.rejected.append(target)
+            pass # self.rejected.append(target)
         else:
-            self.accepted.append(target)
+            pass # self.accepted.append(target)
         return best_node
 
     def collision_free(self, node: Node) -> bool:
