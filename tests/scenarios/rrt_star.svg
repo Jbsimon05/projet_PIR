@@ -43,7 +43,10 @@
       <goal
          goal_id="goal_0" />
       <behavior
-         type="rrt_star" />
+         type="stilman_rrt_star_behavior">
+        <parameters
+           use_social_cost="true" />
+      </behavior>
     </agent>
   </namo_config>
   <sodipodi:namedview
