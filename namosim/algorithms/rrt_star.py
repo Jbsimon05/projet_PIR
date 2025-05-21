@@ -9,7 +9,7 @@ from namosim.data_models import PoseModel
 from namosim.utils import utils
 from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
 from shapely import affinity
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box
 
 from namosim.algorithms.kd_tree import KDTree as CustomKDTree
 from visualization_msgs.msg import Marker
@@ -40,12 +40,12 @@ class DiffDriveRRTStar:
         use_kdtree: bool = True,
         informed: bool = True,
         exit_check_interval: int = 10,
-        use_rrt_smart: bool = True,  # Nouveau paramètre pour activer/désactiver RRT*-Smart
     ):
         self.polygon = polygon
         self.start = RRTNode(start)
         self.goal = RRTNode(goal) if goal is not None else None
         self.map = map
+        self.map_box = box(0, 0, self.map.width, self.map.height)
         self.max_iter = max_iter
         self.goal_tolerance = goal_tolerance
         self.tree: List[RRTNode] = [self.start]
@@ -56,16 +56,12 @@ class DiffDriveRRTStar:
         self.cost_calc = cost_calc
         self.early_exit_condition = early_exit_condition
         self.exit_interval = exit_check_interval
-        self.use_rrt_smart = use_rrt_smart
-        self.beacons = [] if self.use_rrt_smart else None  # Balises pour l'échantillonnage intelligent
-        self.biasing_interval = 10 if self.use_rrt_smart else None  # Intervalle pour l'échantillonnage biaisé
-        self.biasing_radius = self.map.cell_size * 2 if self.use_rrt_smart else None  # Rayon pour l'échantillonnage biaisé
 
         self.max_vel = self.map.cell_size
         self.search_radius = self.map.cell_size * 5
         self.informed = informed
         # Precompute reduced control inputs
-        linear_vels = [-self.max_vel * 0.5, 0, self.max_vel]
+        linear_vels = [-self.max_vel, 0, self.max_vel]
         angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 3)
         self.control_inputs = [
             (v, w)
@@ -142,10 +138,12 @@ class DiffDriveRRTStar:
         dists = [self.cost_calc(pose, n.pose) for n in self.tree]
         return self.tree[int(np.argmin(dists))]
 
-    def steer(self, from_node: RRTNode, target: PoseModel, step_size=0.02) -> RRTNode:
+    def steer(
+        self, from_node: RRTNode, target: PoseModel, step_size=0.01
+    ) -> RRTNode | None:
         x0, y0, th0 = from_node.pose
         th0_rad = utils.normalize_angle_radians(math.radians(th0))
-        best_node = from_node
+        best_node: RRTNode | None = None
         best_d = float("inf")
 
         for v, w in self.control_inputs:
@@ -182,19 +180,27 @@ class DiffDriveRRTStar:
                     best_node.cost = from_node.cost + self.cost_calc(
                         from_node.pose, new_pose
                     )
-        if best_node.pose == from_node.pose:
-            pass  # self.rejected.append(target)
-        else:
-            pass  # self.accepted.append(target)
+
         return best_node
 
     def collision_free(self, node: RRTNode) -> bool:
-        dx = node.pose[0] - self.start.pose[0]
-        dy = node.pose[1] - self.start.pose[1]
-        dth = node.pose[2] - self.start.pose[2]
-        poly = affinity.rotate(self.polygon, dth, origin=self.start.pose[:2])
-        poly = affinity.translate(poly, xoff=dx, yoff=dy)
-        return not self.map.polygon_has_collisions(poly)
+        dx, dy, dtheta = (
+            node.pose[0] - self.start.pose[0],
+            node.pose[1] - self.start.pose[1],
+            node.pose[2] - self.start.pose[2],
+        )
+        new_polygon = affinity.rotate(
+            self.polygon, origin=(self.start.pose[0], self.start.pose[1]), angle=dtheta
+        )
+        new_polygon = affinity.translate(new_polygon, xoff=dx, yoff=dy)
+        if not self.map_box.contains(new_polygon):
+            return False
+
+        collision_free = not self.map.polygon_has_collisions(new_polygon)
+        # if collision_free:
+        #     debug_img = self.map.draw_polygon_on_map(polygon=new_polygon)
+        #     debug_img.save('debug_img.png')
+        return collision_free
 
     def predict_polygon_for_node(self, node: RRTNode, polygon: Polygon) -> Polygon:
         """
@@ -205,6 +211,14 @@ class DiffDriveRRTStar:
         dy = node.pose[1] - self.start.pose[1]
         dth = node.pose[2] - self.start.pose[2]
         polygon = affinity.rotate(polygon, dth, origin=self.start.pose[:2])
+        polygon = affinity.translate(polygon, xoff=dx, yoff=dy)
+        return polygon
+
+    def get_polygon_at_node(self, node: RRTNode) -> Polygon:
+        dx = node.pose[0] - self.start.pose[0]
+        dy = node.pose[1] - self.start.pose[1]
+        dth = node.pose[2] - self.start.pose[2]
+        polygon = affinity.rotate(self.polygon, dth, origin=self.start.pose[:2])
         polygon = affinity.translate(polygon, xoff=dx, yoff=dy)
         return polygon
 
@@ -228,81 +242,69 @@ class DiffDriveRRTStar:
         theta = 2 * math.pi * random.random()
         return np.array([r * math.cos(theta), r * math.sin(theta)])
 
-    def optimize_path(self, path: List[RRTNode]) -> List[RRTNode]:
-        """Optimise le chemin en connectant directement les nœuds visibles."""
-        optimized_path = [path[0]]
-        for i in range(1, len(path)):
-            if self._shortcut_collision_free(optimized_path[-1], path[i]):
-                continue
-            optimized_path.append(path[i - 1])
-        optimized_path.append(path[-1])
-        return optimized_path
-
-    def update_beacons(self, path: List[RRTNode]):
-        """Met à jour les balises en fonction du chemin optimisé."""
-        self.beacons = [node.pose for node in path]
-
-    def biased_random_pose(self) -> PoseModel:
-        """Génère une pose aléatoire biaisée vers les balises."""
-        if self.use_rrt_smart and self.beacons and random.random() < 0.5:  # 50% de chance d'échantillonnage biaisé
-            beacon = random.choice(self.beacons)
-            x = random.uniform(beacon[0] - self.biasing_radius, beacon[0] + self.biasing_radius)
-            y = random.uniform(beacon[1] - self.biasing_radius, beacon[1] + self.biasing_radius)
-            theta = random.uniform(-180, 180)
-            return (x, y, theta)
-        return self.random_pose()
-
     def plan(self) -> Optional[List[RRTNode]]:
-        """Méthode de planification modifiée pour inclure les fonctionnalités RRT*-Smart."""
         t0 = time.time()
         best_path = None
         for i in range(self.max_iter):
-            cfg = (
-                self.biased_random_pose()
-                if self.use_rrt_smart and self.beacons and i % self.biasing_interval == 0
-                else self.random_pose()
-            )
+            cfg = self.random_pose()
             if self.goal and random.random() < 0.1:
                 cfg = self.goal.pose
             n0 = self.nearest_node(cfg)
             n1 = self.steer(n0, cfg)
-            if not self._is_collision_free(n1.pose):
+            if n1 is None or not self.collision_free(n1):
                 continue
             near = self.get_near_nodes(n1)
-            parent, cost = n0, n0.cost + self.cost_calc(n0.pose, n1.pose)
-            for nbr in near:
-                c2 = nbr.cost + self.cost_calc(nbr.pose, n1.pose)
-                if c2 < cost and self._is_collision_free(n1.pose):
-                    parent, cost = nbr, c2
-            n1.parent, n1.cost = parent, cost
+            cost = n0.cost + self.cost_calc(n0.pose, n1.pose)
+            for neighbor in near:
+                c2 = neighbor.cost + self.cost_calc(neighbor.pose, n1.pose)
+                if c2 < cost:
+                    n1.parent = neighbor
+                    n1.cost = c2
+
             self.tree.append(n1)
             if self.use_kdtree:
                 self._kdtree.add(n1)
-            for nbr in near:
-                c2 = n1.cost + self.cost_calc(n1.pose, nbr.pose)
-                if c2 < nbr.cost and self._is_collision_free(nbr.pose):
-                    nbr.parent, nbr.cost = n1, c2
+
+            for neighbor in near:
+                if neighbor == n1.parent:
+                    continue
+                c2 = n1.cost + self.cost_calc(n1.pose, neighbor.pose)
+                if c2 < neighbor.cost:
+                    neighbor.parent = n1
+                    neighbor.cost = c2
+
             if self.goal:
                 if self.near_goal(n1):
                     path = self._get_path(n1)
-                    if self.use_rrt_smart:
-                        optimized_path = self.optimize_path(path)
-                        if not best_path or optimized_path[-1].cost < best_path[-1].cost:
-                            best_path = optimized_path
-                            self.update_beacons(optimized_path)
-                            if not self.informed:
-                                self.elapsed_time = time.time() - t0
-                                return optimized_path
-                    else:
-                        if not best_path or path[-1].cost < best_path[-1].cost:
+                    total = path[-1].cost
+                    if self.informed:
+                        if total < self.best_cost:
+                            self.best_cost = self.c_best = total
                             best_path = path
-                            if not self.informed:
-                                self.elapsed_time = time.time() - t0
-                                return path
+                    else:
+                        self.elapsed_time = time.time() - t0
+                        return path
             elif i % self.exit_interval == 0 and self.early_exit_condition(n1, i):
                 return self.tree
         self.elapsed_time = time.time() - t0
         return best_path if self.informed else None
+
+    def debug_plan(self, path: List[RRTNode]):
+        for i, node in enumerate(path):
+            polygon = self.get_polygon_at_node(node)
+            debug_img = self.map.draw_polygon_on_map(polygon=polygon)
+            utils.save_image(debug_img, f"rrt_plan/robot_in_map_{i}.png")
+
+    def smooth_path(self, path: List[RRTNode], max_trials: int = 100) -> List[RRTNode]:
+        if len(path) < 3:
+            return path
+        for _ in range(max_trials):
+            if len(path) < 3:
+                break
+            i, j = random.randint(0, len(path) - 3), random.randint(2, len(path) - 1)
+            if self._shortcut_collision_free(path[i], path[j]):
+                path = path[: i + 1] + path[j:]
+        return path
 
     def _get_path(self, node: RRTNode | None) -> List[RRTNode]:
         path = []
