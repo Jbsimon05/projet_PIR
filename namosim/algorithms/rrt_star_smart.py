@@ -214,7 +214,7 @@ class DiffDriveRRTStar:
 
     def biased_random_pose(self) -> PoseModel:
         """Generate a random pose biased towards beacons."""
-        if self.use_rrt_smart and self.beacons and random.random() < 0.5:  # 50% chance of biased sampling
+        if self.use_rrt_smart and self.beacons and self.biasing_radius is not None and random.random() < 0.5:  # 50% chance of biased sampling
             beacon = random.choice(self.beacons)
             x = random.uniform(beacon[0] - self.biasing_radius, beacon[0] + self.biasing_radius)
             y = random.uniform(beacon[1] - self.biasing_radius, beacon[1] + self.biasing_radius)
