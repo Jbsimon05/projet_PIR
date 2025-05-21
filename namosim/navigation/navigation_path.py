@@ -50,18 +50,17 @@ class RawPath:
         self,
         pose: PoseModel,
         cell_size: float,
-
     ):
         """
         Returns `True` if the given pose is equivalen to the first pose in the path,
         up to a fixed degree of precision, otherwise `False`.
         """
+
         translation_discretization_factor = 2 / cell_size
         rotation_discretization_factor = 1 / 3
         other_pose = utils.real_pose_to_fixed_precision_pose(
             pose, translation_discretization_factor, rotation_discretization_factor
         )
-
         start_pose = utils.real_pose_to_fixed_precision_pose(
             self.poses[0],
             translation_discretization_factor,

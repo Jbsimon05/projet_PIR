@@ -2193,6 +2193,7 @@ class StilmanRRTAgent(Agent):
             )
 
             nodes = rrt.plan()
+            # rrt.plot(nodes)
 
             if nodes:
                 poses = [x.pose for x in nodes]

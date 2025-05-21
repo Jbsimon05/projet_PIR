@@ -33,7 +33,7 @@ from namosim.algorithms.new_local_opening_check import check_new_local_opening
 from namosim.data_models import (
     GridCellModel,
     PoseModel,
-    StilmanRRTBehaviorConfigModel,
+    StilmanRRTStarBehaviorConfigModel,
 )
 from namosim.input import Input
 from namosim.navigation.conflict import (
@@ -62,7 +62,7 @@ class StilmanRRTStarAgent(Agent):
         self,
         *,
         navigation_goals: t.List[Goal],
-        config: StilmanRRTBehaviorConfigModel,
+        config: StilmanRRTStarBehaviorConfigModel,
         logs_dir: str,
         uid: str,
         polygon: Polygon,
@@ -1812,17 +1812,17 @@ class StilmanRRTStarAgent(Agent):
 
         # Use Dijkstra algorithm to compute a transfer path that allows for an opening to be created
         transfer_path = self.rrt_for_manip_search_no_goal(
-                grab_configs=transfer_start_configs,
-                agent_id=agent_id,
-                other_entities_aabb_tree=other_entities_aabb_tree,
-                c1_cells=c_1_cells_set,
-                check_for_local_opening=check_new_local_opening_before_global,
-                obstacle_uid=obstacle_uid,
-                other_entities_polygons=other_entities_polygons,
-                map=w_t.map,
-                r_acc_cells=r_acc_cells,
-                ccs_data=ccs_data,
-                sorted_cell_to_combined_cost={}
+            grab_configs=transfer_start_configs,
+            agent_id=agent_id,
+            other_entities_aabb_tree=other_entities_aabb_tree,
+            c1_cells=c_1_cells_set,
+            check_for_local_opening=check_new_local_opening_before_global,
+            obstacle_uid=obstacle_uid,
+            other_entities_polygons=other_entities_polygons,
+            map=w_t.map,
+            r_acc_cells=r_acc_cells,
+            ccs_data=ccs_data,
+            sorted_cell_to_combined_cost={},
         )
 
         # Don't forget to update w_t_next with transfer end state
@@ -1975,7 +1975,7 @@ class StilmanRRTStarAgent(Agent):
                 map=map_copy,
                 r_acc_cells=r_acc_cells,
                 ccs_data=ccs_data,
-                sorted_cell_to_combined_cost=sorted_cell_to_combined_cost
+                sorted_cell_to_combined_cost=sorted_cell_to_combined_cost,
             )
 
             # Don't forget to update w_t_next with transfer end state
@@ -2082,7 +2082,7 @@ class StilmanRRTStarAgent(Agent):
         return graph_search.new_generic_dijkstra(
             start, exit_condition=exit_condition, get_neighbors=get_neighbors
         )
-    
+
     def rrt_for_manip_search_no_goal(
         self,
         grab_configs: t.List[RobotObstacleConfiguration],
@@ -2100,7 +2100,7 @@ class StilmanRRTStarAgent(Agent):
         obstacle_can_intrude_r_acc: bool = True,
         obstacle_can_intrude_c_1_x: bool = True,
     ) -> TransferPath | None:
-        
+
         map = copy.deepcopy(map)
         map.update_polygons(other_entities_polygons)
 
@@ -2117,7 +2117,7 @@ class StilmanRRTStarAgent(Agent):
             )
             robot_obstacle_polygon: Polygon = t.cast(
                 Polygon, combined_polygon.convex_hull
-            )
+            ).buffer(self.collision_margin * 1)
 
             robot_collision_rrt = DiffDriveRRTStar(
                 polygon=robot_polygon_after_grab,
@@ -2132,23 +2132,31 @@ class StilmanRRTStarAgent(Agent):
                 entity_uid=obstacle_uid,
                 distance=-(self.grab_start_distance - self.grab_end_distance),
             )
-            def early_exit_condition(node, iteration:int) -> bool:
-                can_release = robot_collision_rrt.collision_free(Node(release_action.predict_pose(node.pose, node.pose),None, node.cost))
+
+            def early_exit_condition(node, iteration: int) -> bool:
+                can_release = robot_collision_rrt.collision_free(
+                    Node(
+                        release_action.predict_pose(node.pose, node.pose),
+                        None,
+                        node.cost,
+                    )
+                )
                 has_opening = can_release and self.is_there_opening_to_c1(
-                            check_for_local_opening=check_for_local_opening,
-                            agent_id=agent_id,
-                            robot_cell=grab_config.robot.cell_in_grid,
-                            obstacle_uid=obstacle_uid,
-                            old_obstacle_polygon=obstacle_polygon,
-                            new_obstacle_polygon=obstacle_polygon, # TODO : make sure this is correct
-                            other_entities_polygons=other_entities_polygons,
-                            other_entities_aabb_tree=other_entities_aabb_tree,
-                            robot_inflated_grid=copy.deepcopy(map),
-                            c1_cells=c1_cells,
-                            goal_pose=node.pose,
-                            goal_cell=self.pose_to_fixed_precision(node.pose)[:2],
-                            ros_publisher=ros_publisher,
-                            neighborhood=utils.CHESSBOARD_NEIGHBORHOOD,)
+                    check_for_local_opening=check_for_local_opening,
+                    agent_id=agent_id,
+                    robot_cell=grab_config.robot.cell_in_grid,
+                    obstacle_uid=obstacle_uid,
+                    old_obstacle_polygon=obstacle_polygon,
+                    new_obstacle_polygon=obstacle_polygon,  # TODO : make sure this is correct
+                    other_entities_polygons=other_entities_polygons,
+                    other_entities_aabb_tree=other_entities_aabb_tree,
+                    robot_inflated_grid=copy.deepcopy(map),
+                    c1_cells=c1_cells,
+                    goal_pose=node.pose,
+                    goal_cell=self.pose_to_fixed_precision(node.pose)[:2],
+                    ros_publisher=ros_publisher,
+                    neighborhood=utils.CHESSBOARD_NEIGHBORHOOD,
+                )
                 self.found_opening = self.found_opening or has_opening
                 if has_opening:
                     self.has_local_openings.append(node)
@@ -2169,7 +2177,9 @@ class StilmanRRTStarAgent(Agent):
                 # Compute best compromise cost among poses with local openings
                 best_compromise = self.has_local_openings[0]
                 # 2 obstacle test only works with no node distance cost added, minimal test only works with + best_compromise.cost there
-                best_compromise_total_cost = sorted_cell_to_combined_cost.get(self.pose_to_fixed_precision(best_compromise.pose)[:2], 1000.0)
+                best_compromise_total_cost = sorted_cell_to_combined_cost.get(
+                    self.pose_to_fixed_precision(best_compromise.pose)[:2], 1000.0
+                )
                 for node in self.has_local_openings:
                     key = self.pose_to_fixed_precision(node.pose)[:2]
                     # and + best_compromise.cost here
@@ -2177,7 +2187,7 @@ class StilmanRRTStarAgent(Agent):
                     if cost < best_compromise_total_cost:
                         best_compromise_total_cost = cost
                         best_compromise = node
-            
+
                 path = rrt._get_path(best_compromise)
                 poses = [x.pose for x in path]
                 path = TransitPath.from_poses(
@@ -2228,7 +2238,6 @@ class StilmanRRTStarAgent(Agent):
                     obstacle_uid=obstacle_uid,
                     manip_pose_id=grab_config.manip_pose_id,
                 )
-                    
 
     def rrt_for_manip_search(
         self,
@@ -2266,7 +2275,7 @@ class StilmanRRTStarAgent(Agent):
 
             nodes = rrt.plan()
 
-            #rrt.plot()
+            # rrt.plot()
             if nodes:
                 poses = [x.pose for x in nodes]
                 path = TransitPath.from_poses(

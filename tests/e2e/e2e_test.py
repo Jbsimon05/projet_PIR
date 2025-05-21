@@ -3,18 +3,6 @@ import unittest
 
 from namosim.simulator import create_sim_from_file
 import cProfile
-from rclpy.node import Node as ROSNode
-from visualization_msgs.msg import Marker
-
-
-class RRTStarVisualizer(ROSNode):
-    def __init__(self):
-        super().__init__('rrt_star_visualizer')
-        self.publisher = self.create_publisher(Marker, 'rrt_star_tree', 10)
-
-    def publish_tree(self, rrt_star):
-        marker = rrt_star.get_tree_marker()
-        self.publisher.publish(marker)
 
 
 class TestE2E:
@@ -77,12 +65,12 @@ class TestE2E:
         profiler.enable()
         sim = create_sim_from_file(
             simulation_file_path=os.path.abspath(
-                os.path.join(
-                    self.scenarios_folder, "stilman_rrt_star.svg"
-                )
+                os.path.join(self.scenarios_folder, "stilman_rrt_star.svg")
             )
         )
-        assert sim is not None, "Simulation could not be created. Check the scenario file."
+        assert (
+            sim is not None
+        ), "Simulation could not be created. Check the scenario file."
         sim.run()
         for log in sim.logger:
             print(log.message)  # Log all messages for debugging
@@ -144,6 +132,25 @@ class TestE2E:
         sim = create_sim_from_file(
             simulation_file_path=os.path.join(self.scenarios_folder, "rrt_star.svg")
         )
+        sim.run()
+        assert any(
+            [
+                x.message == "Agent robot_0 finished executing all its goals."
+                for x in sim.logger
+            ]
+        )
+        assert any(
+            [
+                x.message.startswith("Agent robot_0 successfully executed goal")
+                for x in sim.logger
+            ]
+        )
+
+    def test_rrt_without_kd_tree(self):
+        sim = create_sim_from_file(
+            simulation_file_path=os.path.join(self.scenarios_folder, "rrt.svg")
+        )
+        sim.ref_world.agents["robot_0"].config.use_kd_tree = False
         sim.run()
         assert any(
             [
@@ -237,6 +244,7 @@ class TestE2E:
                 for x in sim.logger
             ]
         )
+
     def test_1_robot_2_obstacles_social_rrt(self):
         sim = create_sim_from_file(
             simulation_file_path=os.path.join(
@@ -256,6 +264,7 @@ class TestE2E:
                 for x in sim.logger
             ]
         )
+
     def test_1_robot_2_obstacles_social_rrt_star(self):
         sim = create_sim_from_file(
             simulation_file_path=os.path.join(

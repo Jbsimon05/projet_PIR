@@ -87,24 +87,25 @@ class KDTree(Generic[T]):
         target = list(point)
         r2 = radius * radius
         result: List[T] = []
+
         def _search(node: Optional[KDNode[T]], depth: int):
             if node is None:
                 return
             axis = depth % self.dimensions
             diff = target[axis] - node.point[axis]
             # Pruning: skip subtree if axis difference alone is greater than radius
-            if diff*diff > r2:
+            if diff * diff > r2:
                 if diff < 0:
-                    _search(node.left, depth+1)
+                    _search(node.left, depth + 1)
                 else:
-                    _search(node.right, depth+1)
+                    _search(node.right, depth + 1)
                 return
             # Test real distance
-            dist2 = sum((a - b)**2 for a, b in zip(target, node.point))
+            dist2 = sum((a - b) ** 2 for a, b in zip(target, node.point))
             if dist2 <= r2:
                 result.append(node.object)
-            _search(node.left, depth+1)
-            _search(node.right, depth+1)
+            _search(node.left, depth + 1)
+            _search(node.right, depth + 1)
+
         _search(self.root, 0)
         return result
-

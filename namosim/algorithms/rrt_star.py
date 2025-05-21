@@ -44,7 +44,7 @@ class DiffDriveRRTStar:
         use_kdtree: bool = True,
         informed: bool = False,
         exit_check_interval: int = 10,
-        use_rrt_smart: bool = True  # New parameter to enable/disable RRT*-Smart
+        use_rrt_smart: bool = False  # New parameter to enable/disable RRT*-Smart
     ):
         self.polygon = polygon
         self.start = Node(start)

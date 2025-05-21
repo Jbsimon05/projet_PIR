@@ -28,10 +28,6 @@ class RRTAgentConfigModel(BaseBehaviorConfigModel):
     use_kd_tree: bool = attr(default=True)
 
 
-class RRT_STAR_AgentConfigModel(BaseBehaviorConfigModel):
-    type: t.Literal["rrt_star"] = attr()
-
-
 class TeleopBehaviorConfigModel(BaseBehaviorConfigModel):
     type: t.Literal["teleop_behavior"] = attr()
 
@@ -49,27 +45,7 @@ class StilmanBehaviorParametersModel(BaseXmlModel, tag="parameters"):
     check_new_local_opening_before_global: bool = attr(default=True)
     activate_grids_logging: bool = attr(default=False)
     push_only: bool = attr(default=False)
-    robot_rotation_unit_angle: float = attr(default=30)
-    manip_search_bound_percentage: float = attr(default=0.15)
-    use_social_cost: bool = attr(default=True)
-    resolve_conflicts: bool = attr(default=True)
-    resolve_deadlocks: bool = attr(default=True)
-    deadlock_strategy: t.Literal["SOCIAL", "DISTANCE", ""] = attr(default="")
-    drive_type: t.Literal["holonomic", "differential"] = attr(default="holonomic")
-    grab_start_distance: float | None = attr(default=None)
-    grab_end_distance: float | None = attr(default=None)
-    conflict_horizon: int = attr(default=15)
-
-class StilmanRRTBehaviorConfigModel(BaseBehaviorConfigModel):
-    type: t.Literal["stilman_rrt"] = attr()
-    parameters: StilmanBehaviorParametersModel = element()
-
-
-class StilmanRRTStarBehaviorParametersModel(BaseXmlModel, tag="parameters"):
-    check_new_local_opening_before_global: bool = attr(default=True)
-    activate_grids_logging: bool = attr(default=False)
-    push_only: bool = attr(default=False)
-    robot_rotation_unit_angle: float = attr(default=30)
+    robot_rotation_unit_angle: float = attr(default=15)
     manip_search_bound_percentage: float = attr(default=0.05)
     use_social_cost: bool = attr(default=True)
     resolve_conflicts: bool = attr(default=True)
@@ -79,17 +55,20 @@ class StilmanRRTStarBehaviorParametersModel(BaseXmlModel, tag="parameters"):
     grab_start_distance: float | None = attr(default=None)
     grab_end_distance: float | None = attr(default=None)
     conflict_horizon: int = attr(default=15)
-    # Champs sociaux spécifiques StilmanRRTStar
-    check_new_opening_activated: bool = attr(default=True)
-    manip_weight: float = attr(default=1.0)
-    reset_knowledge_activated: bool = attr(default=True)
-    social_movability_evaluation_activated: bool = attr(default=True)
-    social_placement_choice_activated: bool = attr(default=True)
-    use_social_layer: bool = attr(default=True)
 
 
 class StilmanBehaviorConfigModel(BaseBehaviorConfigModel):
     type: t.Literal["stilman_2005_behavior"] = attr()
+    parameters: StilmanBehaviorParametersModel = element()
+
+
+class StilmanRRTBehaviorConfigModel(BaseBehaviorConfigModel):
+    type: t.Literal["stilman_rrt"] = attr()
+    parameters: StilmanBehaviorParametersModel = element()
+
+
+class StilmanRRTStarBehaviorConfigModel(BaseBehaviorConfigModel):
+    type: t.Literal["stilman_rrt_star_behavior"] = attr()
     parameters: StilmanBehaviorParametersModel = element()
 
 
@@ -103,21 +82,15 @@ class WuLevihnBehaviorConfigModel(BaseBehaviorConfigModel):
     use_social_layer: bool = attr()
 
 
-class StilmanRRTStarBehaviorConfigModel(BaseBehaviorConfigModel):
-    type: t.Literal["stilman_rrt_star_behavior"] = attr()
-    parameters: StilmanRRTStarBehaviorParametersModel = element()
-
-
 AgentBehaviorConfig = t.Union[
     WuLevihnBehaviorConfigModel,
     NavigationOnlyBehaviorConfigModel,
     RRTAgentConfigModel,
-    RRT_STAR_AgentConfigModel,
     TeleopBehaviorConfigModel,
     StilmanBehaviorConfigModel,
-    PPOAgentConfigModel,
+    StilmanRRTBehaviorConfigModel,
     StilmanRRTStarBehaviorConfigModel,
-    StilmanRRTBehaviorConfigModel
+    PPOAgentConfigModel,
 ]
 
 

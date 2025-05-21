@@ -622,6 +622,7 @@ class Simulator:
                     think_result.plan.pop_next_action()
                 )
 
+
         return agent_uid_to_next_action
 
     def save_think_times(self, think_durations: t.Dict[str, float], step_count: int):

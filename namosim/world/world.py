@@ -25,9 +25,7 @@ from namosim.data_models import (
     NamoConfigModel,
     PoseModel,
     StilmanBehaviorConfigModel,
-    StilmanRRTStarBehaviorConfigModel,
     StilmanBehaviorParametersModel,
-    StilmanRRTStarBehaviorParametersModel
 )
 from namosim.utils import collision
 from namosim.world.binary_occupancy_grid import BinaryOccupancyGrid
@@ -316,19 +314,6 @@ class World:
                 new_robot = agts.RRTAgent(
                     navigation_goals=goals,
                     config=agent.behavior,
-                    logs_dir=logs_dir,
-                    uid=agent.agent_id,
-                    polygon=robot_polygon,
-                    style=agent_style,
-                    pose=init_pose,
-                    sensors=[OmniscientSensor()],
-                    cell_size=cell_size,
-                    logger=logger,
-                )
-            elif agent.behavior.type == "rrt_star":
-                new_robot = agts.RRT_STAR_Agent(
-                    navigation_goals=goals,
-                    config=agent.behavior, 
                     logs_dir=logs_dir,
                     uid=agent.agent_id,
                     polygon=robot_polygon,
