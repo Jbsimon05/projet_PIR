@@ -2137,9 +2137,10 @@ class StilmanRRTStarAgent(Agent):
             )
 
             def early_exit_condition(node: RRTNode, iteration: int) -> bool:
+                robot_pose_after_release = release_action.predict_pose(node.pose, node.pose)
                 can_release = robot_collision_rrt.collision_free(
                     RRTNode(
-                        release_action.predict_pose(node.pose, node.pose),
+                        robot_pose_after_release,
                         None,
                         node.cost,
                     )
@@ -2147,7 +2148,7 @@ class StilmanRRTStarAgent(Agent):
                 new_obstacle_polygon = rrt.predict_polygon_for_node(
                     node, obstacle_polygon
                 )
-                robot_cell = map.pose_to_cell(node.pose[0], node.pose[1])
+                robot_cell = map.pose_to_cell(robot_pose_after_release[0], robot_pose_after_release[1])
                 has_opening = can_release and self.is_there_opening_to_c1(
                     check_for_local_opening=check_for_local_opening,
                     agent_id=agent_id,
@@ -2179,7 +2180,7 @@ class StilmanRRTStarAgent(Agent):
 
             tree = rrt.plan()
 
-            # rrt.plot()
+            rrt.plot()
             if tree is not None and len(self.has_local_openings) > 0:
                 # Compute best compromise cost among poses with local openings
                 best_compromise = self.has_local_openings[0]
