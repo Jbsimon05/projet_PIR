@@ -201,6 +201,22 @@
      sodipodi:nodetypes="ccccc"
      inkscape:label="#path3336-6-3" />
   <path
+     style="fill:#000000;fill-opacity:1;stroke:none;stroke-width:5.96157px;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-opacity:1"
+     d="M 0,0 h 14.889427 v 445.58823 h -14.889427 Z"
+     id="wall-5"
+     type="wall"
+     inkscape:connector-curvature="0"
+     sodipodi:nodetypes="ccccc"
+     inkscape:label="#path3336-6-3" />
+  <path
+     style="fill:#000000;fill-opacity:1;stroke:none;stroke-width:5.96157px;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:10;stroke-opacity:1"
+     d="M 490.1106,0 h 14.889427 v 445.58823 h -14.889427 Z"
+     id="wall-6"
+     type="wall"
+     inkscape:connector-curvature="0"
+     sodipodi:nodetypes="ccccc"
+     inkscape:label="#path3336-6-3" />
+  <path
      id="goal_0"
      style="fill:none;fill-rule:evenodd;stroke:#1155cc;stroke-width:2.92906"
      inkscape:transform-center-x="0.00010111296"
@@ -213,20 +229,4 @@
      inkscape:label="#path4172"
      d="m 74.696392,65.365569 c -0.274153,2.609563 -0.433201,5.231111 -0.778542,7.833102 -1.234474,2.272975 -2.367166,4.601104 -3.664511,6.839829 -2.010336,1.627558 -3.947743,3.345017 -6.003064,4.916861 -2.480147,0.734346 -4.927324,1.579637 -7.427705,2.245309 -2.572377,-0.270657 -5.156753,-0.426193 -7.721542,-0.768078 -2.272992,-1.234458 -4.601124,-2.367146 -6.839852,-3.664498 -1.627552,-2.010342 -3.345008,-3.947753 -4.916852,-6.003077 -0.734346,-2.480141 -1.579646,-4.927311 -2.245306,-7.427692 0.270667,-2.572381 0.426204,-5.156763 0.768069,-7.721559 1.234471,-2.272978 2.367163,-4.601104 3.664511,-6.839829 2.010336,-1.627559 3.94774,-3.345017 6.00306,-4.916865 2.480148,-0.734342 4.927325,-1.579633 7.427705,-2.245309 2.572378,0.270657 5.156757,0.426197 7.721546,0.768082 2.272989,1.234458 4.601128,2.367143 6.839852,3.664498 1.628295,2.097661 3.550012,4.016387 4.987344,6.231707 0.728428,2.362508 1.456862,4.725011 2.185287,7.087519 z"
      type="shape" />
-  <rect
-     style="fill:#000000;stroke-width:0.0227861"
-     id="wall-6"
-     width="14.889427"
-     height="445.58823"
-     x="505"
-     y="0"
-     inkscape:label="#path3336-6-3" />
-  <rect
-     style="fill:#000000;stroke:none;stroke-width:0.0227861;stroke-linecap:square;stroke-miterlimit:10"
-     id="wall-5"
-     width="14.889427"
-     height="445.58823"
-     x="-14.889435"
-     y="-1.5771484e-06"
-     inkscape:label="#path3336-6-3" />
 </svg>
