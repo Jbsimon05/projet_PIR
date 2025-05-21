@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from dataclasses import dataclass
 from typing import List, Optional
 import random
 import math
@@ -16,19 +15,16 @@ from namosim.algorithms.kd_tree import KDTree as CustomKDTree
 from visualization_msgs.msg import Marker
 from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import Point
+from namosim.algorithms.rrt_node import RRTNode
 
-def default_cost_calc(p1:PoseModel, p2:PoseModel) -> float:
+
+def default_cost_calc(p1: PoseModel, p2: PoseModel) -> float:
     return utils.distance_between_poses(p1, p2)
 
 
-@dataclass
-class Node:
-    pose: PoseModel
-    parent: Optional["Node"] = None
-    cost: float = 0.0
-    
-def default_exit_condition(pose:Node, iteration:int) -> bool:
+def default_exit_condition(pose: RRTNode, iteration: int) -> bool:
     return False
+
 
 class DiffDriveRRTStar:
     def __init__(
@@ -37,22 +33,22 @@ class DiffDriveRRTStar:
         start: PoseModel,
         goal: PoseModel | None,
         map: BinaryOccupancyGrid,
-        cost_calc = default_cost_calc,
-        early_exit_condition = default_exit_condition,
+        cost_calc=default_cost_calc,
+        early_exit_condition=default_exit_condition,
         max_iter: int = 5000,
         goal_tolerance=0.1,
         use_kdtree: bool = True,
-        informed: bool = False,
+        informed: bool = True,
         exit_check_interval: int = 10,
-        use_rrt_smart: bool = False  # New parameter to enable/disable RRT*-Smart
+        use_rrt_smart: bool = True,  # Nouveau paramètre pour activer/désactiver RRT*-Smart
     ):
         self.polygon = polygon
-        self.start = Node(start)
-        self.goal = Node(goal) if goal is not None else None
+        self.start = RRTNode(start)
+        self.goal = RRTNode(goal) if goal is not None else None
         self.map = map
         self.max_iter = max_iter
         self.goal_tolerance = goal_tolerance
-        self.tree: List[Node] = [self.start]
+        self.tree: List[RRTNode] = [self.start]
         self.rejected = []
         self.accepted = []
         self.use_kdtree = use_kdtree
@@ -61,17 +57,22 @@ class DiffDriveRRTStar:
         self.early_exit_condition = early_exit_condition
         self.exit_interval = exit_check_interval
         self.use_rrt_smart = use_rrt_smart
-        self.beacons = [] if self.use_rrt_smart else None  # Beacons for intelligent sampling
-        self.biasing_interval = 10 if self.use_rrt_smart else None  # Interval for biased sampling
-        self.biasing_radius = self.map.cell_size * 2 if self.use_rrt_smart else None  # Radius for beacon sampling
+        self.beacons = [] if self.use_rrt_smart else None  # Balises pour l'échantillonnage intelligent
+        self.biasing_interval = 10 if self.use_rrt_smart else None  # Intervalle pour l'échantillonnage biaisé
+        self.biasing_radius = self.map.cell_size * 2 if self.use_rrt_smart else None  # Rayon pour l'échantillonnage biaisé
 
         self.max_vel = self.map.cell_size
         self.search_radius = self.map.cell_size * 5
         self.informed = informed
         # Precompute reduced control inputs
-        linear_vels = np.linspace(-self.max_vel * 0.5, self.max_vel, 2)
+        linear_vels = [-self.max_vel * 0.5, 0, self.max_vel]
         angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 3)
-        self.control_inputs = [(v, w) for v in linear_vels for w in angular_vels if not (abs(v) < 1e-6 and abs(w) < 1e-6)]
+        self.control_inputs = [
+            (v, w)
+            for v in linear_vels
+            for w in angular_vels
+            if not (abs(v) < 1e-6 and abs(w) < 1e-6)
+        ]
 
         # Collision cache
         self._collision_cache = {}
@@ -80,28 +81,37 @@ class DiffDriveRRTStar:
             self.best_cost = float("inf")
             self.c_best = None
             self.c_min = self.cost_calc(self.start.pose, self.goal.pose)
-            self.x_center = np.array([
-                (self.start.pose[0] + self.goal.pose[0]) / 2,
-                (self.start.pose[1] + self.goal.pose[1]) / 2
-            ])
-            dx = (self.goal.pose[0] - self.start.pose[0]) / self.c_min if self.c_min > 0 else 1
-            dy = (self.goal.pose[1] - self.start.pose[1]) / self.c_min if self.c_min > 0 else 0
+            self.x_center = np.array(
+                [
+                    (self.start.pose[0] + self.goal.pose[0]) / 2,
+                    (self.start.pose[1] + self.goal.pose[1]) / 2,
+                ]
+            )
+            dx = (
+                (self.goal.pose[0] - self.start.pose[0]) / self.c_min
+                if self.c_min > 0
+                else 1
+            )
+            dy = (
+                (self.goal.pose[1] - self.start.pose[1]) / self.c_min
+                if self.c_min > 0
+                else 0
+            )
             self.C = np.array([[dx, -dy], [dy, dx]])
 
         if self.use_kdtree:
             self._kdtree = CustomKDTree(
-                dimensions=2,
-                point_getter=lambda node: node.pose[:2]
+                dimensions=2, point_getter=lambda node: node.pose[:2]
             )
             self._kdtree.add(self.start)
 
         self.elapsed_time: Optional[float] = None
 
     def _is_collision_free(self, pose: PoseModel) -> bool:
-        key = (round(pose[0],4), round(pose[1],4), round(pose[2],2))
+        key = (round(pose[0], 4), round(pose[1], 4), round(pose[2], 2))
         if key in self._collision_cache:
             return self._collision_cache[key]
-        node = Node(pose)
+        node = RRTNode(pose)
         free = self.collision_free(node)
         self._collision_cache[key] = free
         return free
@@ -118,11 +128,13 @@ class DiffDriveRRTStar:
                     theta = random.uniform(-180, 180)
                     return (float(x), float(y), theta)
         # tirage uniforme global (cas non informé ou avant 1er chemin)
-        return (random.uniform(0, self.map.width),
-                random.uniform(0, self.map.height),
-                random.uniform(-180, 180))
-    
-    def nearest_node(self, pose: PoseModel) -> Node:
+        return (
+            random.uniform(0, self.map.width),
+            random.uniform(0, self.map.height),
+            random.uniform(-180, 180),
+        )
+
+    def nearest_node(self, pose: PoseModel) -> RRTNode:
         if self.use_kdtree and self._kdtree:
             res = self._kdtree.query(pose[:2], k=1)
             if res:
@@ -130,11 +142,11 @@ class DiffDriveRRTStar:
         dists = [self.cost_calc(pose, n.pose) for n in self.tree]
         return self.tree[int(np.argmin(dists))]
 
-    def steer(self, from_node: Node, target: PoseModel, step_size=0.02) -> Node:
+    def steer(self, from_node: RRTNode, target: PoseModel, step_size=0.02) -> RRTNode:
         x0, y0, th0 = from_node.pose
         th0_rad = utils.normalize_angle_radians(math.radians(th0))
         best_node = from_node
-        best_d = float('inf')
+        best_d = float("inf")
 
         for v, w in self.control_inputs:
             if abs(w) < 1e-6:
@@ -142,8 +154,8 @@ class DiffDriveRRTStar:
                 y1 = y0 + v * math.sin(th0_rad)
                 th1_rad = th0_rad
             else:
-                x1 = x0 + (v/w)*(math.sin(th0_rad+w) - math.sin(th0_rad))
-                y1 = y0 - (v/w)*(math.cos(th0_rad+w) - math.cos(th0_rad))
+                x1 = x0 + (v / w) * (math.sin(th0_rad + w) - math.sin(th0_rad))
+                y1 = y0 - (v / w) * (math.cos(th0_rad + w) - math.cos(th0_rad))
                 th1_rad = th0_rad + w
 
             new_pose = (x1, y1, math.degrees(utils.normalize_angle_radians(th1_rad)))
@@ -166,15 +178,17 @@ class DiffDriveRRTStar:
                 d = self.cost_calc(new_pose, target)
                 if d < best_d:
                     best_d = d
-                    best_node = Node(new_pose, from_node)
-                    best_node.cost = from_node.cost + self.cost_calc(from_node.pose, new_pose)
+                    best_node = RRTNode(new_pose, from_node)
+                    best_node.cost = from_node.cost + self.cost_calc(
+                        from_node.pose, new_pose
+                    )
         if best_node.pose == from_node.pose:
-            pass # self.rejected.append(target)
+            pass  # self.rejected.append(target)
         else:
-            pass # self.accepted.append(target)
+            pass  # self.accepted.append(target)
         return best_node
 
-    def collision_free(self, node: Node) -> bool:
+    def collision_free(self, node: RRTNode) -> bool:
         dx = node.pose[0] - self.start.pose[0]
         dy = node.pose[1] - self.start.pose[1]
         dth = node.pose[2] - self.start.pose[2]
@@ -182,24 +196,40 @@ class DiffDriveRRTStar:
         poly = affinity.translate(poly, xoff=dx, yoff=dy)
         return not self.map.polygon_has_collisions(poly)
 
-    def near_goal(self, node: Node) -> bool:
+    def predict_polygon_for_node(self, node: RRTNode, polygon: Polygon) -> Polygon:
+        """
+        For a given polygon with a fixed pose relative to the robot, this function computes an updated polygon
+        corresponding to the robot's new pose at the given node.
+        """
+        dx = node.pose[0] - self.start.pose[0]
+        dy = node.pose[1] - self.start.pose[1]
+        dth = node.pose[2] - self.start.pose[2]
+        polygon = affinity.rotate(polygon, dth, origin=self.start.pose[:2])
+        polygon = affinity.translate(polygon, xoff=dx, yoff=dy)
+        return polygon
+
+    def near_goal(self, node: RRTNode) -> bool:
         return self.cost_calc(node.pose, self.goal.pose) <= self.goal_tolerance
 
-    def get_near_nodes(self, node: Node) -> List[Node]:
+    def get_near_nodes(self, node: RRTNode) -> List[RRTNode]:
         if self.use_kdtree and self._kdtree:
             cands = self._kdtree.query_radius(node.pose[:2], self.search_radius)
             return [n for n in cands if n is not node]
         poses = np.array([n.pose for n in self.tree])
-        d = np.linalg.norm(poses[:,:2] - np.array(node.pose)[:2], axis=1)
-        return [self.tree[i] for i in np.where(d < self.search_radius)[0] if self.tree[i] is not node]
+        d = np.linalg.norm(poses[:, :2] - np.array(node.pose)[:2], axis=1)
+        return [
+            self.tree[i]
+            for i in np.where(d < self.search_radius)[0]
+            if self.tree[i] is not node
+        ]
 
     def _sample_unit_ball(self) -> np.ndarray:
         r = math.sqrt(random.random())
-        theta = 2*math.pi*random.random()
-        return np.array([r*math.cos(theta), r*math.sin(theta)])
+        theta = 2 * math.pi * random.random()
+        return np.array([r * math.cos(theta), r * math.sin(theta)])
 
-    def optimize_path(self, path: List[Node]) -> List[Node]:
-        """Optimize the path by directly connecting visible nodes."""
+    def optimize_path(self, path: List[RRTNode]) -> List[RRTNode]:
+        """Optimise le chemin en connectant directement les nœuds visibles."""
         optimized_path = [path[0]]
         for i in range(1, len(path)):
             if self._shortcut_collision_free(optimized_path[-1], path[i]):
@@ -208,13 +238,13 @@ class DiffDriveRRTStar:
         optimized_path.append(path[-1])
         return optimized_path
 
-    def update_beacons(self, path: List[Node]):
-        """Update beacons based on the optimized path."""
+    def update_beacons(self, path: List[RRTNode]):
+        """Met à jour les balises en fonction du chemin optimisé."""
         self.beacons = [node.pose for node in path]
 
     def biased_random_pose(self) -> PoseModel:
-        """Generate a random pose biased towards beacons."""
-        if self.use_rrt_smart and self.beacons and random.random() < 0.5:  # 50% chance of biased sampling
+        """Génère une pose aléatoire biaisée vers les balises."""
+        if self.use_rrt_smart and self.beacons and random.random() < 0.5:  # 50% de chance d'échantillonnage biaisé
             beacon = random.choice(self.beacons)
             x = random.uniform(beacon[0] - self.biasing_radius, beacon[0] + self.biasing_radius)
             y = random.uniform(beacon[1] - self.biasing_radius, beacon[1] + self.biasing_radius)
@@ -222,8 +252,8 @@ class DiffDriveRRTStar:
             return (x, y, theta)
         return self.random_pose()
 
-    def plan(self) -> Optional[List[Node]]:
-        """Modified plan method to include optional RRT*-Smart features."""
+    def plan(self) -> Optional[List[RRTNode]]:
+        """Méthode de planification modifiée pour inclure les fonctionnalités RRT*-Smart."""
         t0 = time.time()
         best_path = None
         for i in range(self.max_iter):
@@ -246,7 +276,8 @@ class DiffDriveRRTStar:
                     parent, cost = nbr, c2
             n1.parent, n1.cost = parent, cost
             self.tree.append(n1)
-            if self.use_kdtree: self._kdtree.add(n1)
+            if self.use_kdtree:
+                self._kdtree.add(n1)
             for nbr in near:
                 c2 = n1.cost + self.cost_calc(n1.pose, nbr.pose)
                 if c2 < nbr.cost and self._is_collision_free(nbr.pose):
@@ -273,39 +304,51 @@ class DiffDriveRRTStar:
         self.elapsed_time = time.time() - t0
         return best_path if self.informed else None
 
-
-    def _get_path(self, node: Node) -> List[Node]:
+    def _get_path(self, node: RRTNode | None) -> List[RRTNode]:
         path = []
         while node:
             path.append(node)
             node = node.parent
         return path[::-1]
 
-    def _shortcut_collision_free(self, a: Node, b: Node, steps: int = 10) -> bool:
-        x0,y0,t0 = a.pose
-        x1,y1,t1 = b.pose
+    def _shortcut_collision_free(self, a: RRTNode, b: RRTNode, steps: int = 10) -> bool:
+        x0, y0, t0 = a.pose
+        x1, y1, t1 = b.pose
         for k in range(1, steps):
-            alpha = k/steps
-            if not self.collision_free(Node((x0+alpha*(x1-x0), y0+alpha*(y1-y0), t0+alpha*(t1-t0)))):
+            alpha = k / steps
+            if not self.collision_free(
+                RRTNode(
+                    (
+                        x0 + alpha * (x1 - x0),
+                        y0 + alpha * (y1 - y0),
+                        t0 + alpha * (t1 - t0),
+                    )
+                )
+            ):
                 return False
         return True
 
-    def plot(self, path: Optional[List[Node]] = None):
-        fig = plt.figure(figsize=(8,8))
+    def plot(self, path: Optional[List[RRTNode]] = None):
+        fig = plt.figure(figsize=(8, 8))
         for accepted in self.rejected:
-            plt.plot(accepted[0], accepted[1], 'go', markersize=10)
+            plt.plot(accepted[0], accepted[1], "go", markersize=10)
         for accepted in self.accepted:
-            plt.plot(accepted[0], accepted[1], 'ro', markersize=10)
+            plt.plot(accepted[0], accepted[1], "ro", markersize=10)
         for n in self.tree:
             if n.parent:
-                plt.plot([n.pose[0], n.parent.pose[0]], [n.pose[1], n.parent.pose[1]], 'b-', alpha=0.2)
+                plt.plot(
+                    [n.pose[0], n.parent.pose[0]],
+                    [n.pose[1], n.parent.pose[1]],
+                    "b-",
+                    alpha=0.2,
+                )
         if path:
             xs, ys = zip(*[(n.pose[0], n.pose[1]) for n in path])
-            plt.plot(xs, ys, 'g-', linewidth=2)
-        plt.plot(self.start.pose[0], self.start.pose[1], 'ro')
-        
+            plt.plot(xs, ys, "g-", linewidth=2)
+        plt.plot(self.start.pose[0], self.start.pose[1], "ro")
+
         if self.goal:
-            plt.plot(self.goal.pose[0], self.goal.pose[1], 'go', markersize=10)
+            plt.plot(self.goal.pose[0], self.goal.pose[1], "go", markersize=10)
             title = (
                 f"RRT* Path Planning (informed={self.informed})\n"
                 f"c_best={self.c_best}, c_min={self.c_min:.2f}\n"
@@ -318,16 +361,15 @@ class DiffDriveRRTStar:
                 f"tree length : {len(self.tree)}"
             )
 
-        plt.axis('equal')
+        plt.axis("equal")
         plt.grid(True)
         plt.title(title)
         plt.show()
         plt.close(fig)
 
-    def get_tree_marker(self, frame_id="map", ns="rrt_star_tree", color=(0.0, 0.0, 1.0, 0.2)):
+    def get_tree_marker(self, color=(0.0, 0.0, 1.0, 0.2)):
         marker = Marker()
-        marker.header.frame_id = frame_id
-        marker.ns = ns
+        marker.header.frame_id = "map"
         marker.id = 0
         marker.type = Marker.LINE_LIST
         marker.action = Marker.ADD
