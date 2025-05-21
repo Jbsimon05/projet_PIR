@@ -17,6 +17,7 @@ from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import Point
 from namosim.algorithms.rrt_node import RRTNode
 
+import itertools
 
 def default_cost_calc(p1: PoseModel, p2: PoseModel) -> float:
     return utils.distance_between_poses(p1, p2)
@@ -40,6 +41,8 @@ class DiffDriveRRTStar:
         use_kdtree: bool = True,
         informed: bool = True,
         exit_check_interval: int = 10,
+        use_rrt_smart: bool = True,  # Nouveau paramètre pour activer/désactiver RRT*-Smart
+        is_holonomic:bool = False
     ):
         self.polygon = polygon
         self.start = RRTNode(start)
@@ -56,19 +59,41 @@ class DiffDriveRRTStar:
         self.cost_calc = cost_calc
         self.early_exit_condition = early_exit_condition
         self.exit_interval = exit_check_interval
+        self.use_rrt_smart = use_rrt_smart
+        self.beacons = [] if self.use_rrt_smart else None  # Balises pour l'échantillonnage intelligent
+        self.biasing_interval = 10 if self.use_rrt_smart else None  # Intervalle pour l'échantillonnage biaisé
+        self.biasing_radius = self.map.cell_size * 2 if self.use_rrt_smart else None  # Rayon pour l'échantillonnage biaisé
+        
+        self.is_holonomic = is_holonomic
 
         self.max_vel = self.map.cell_size
         self.search_radius = self.map.cell_size * 5
         self.informed = informed
         # Precompute reduced control inputs
-        linear_vels = [-self.max_vel, 0, self.max_vel]
-        angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 3)
-        self.control_inputs = [
-            (v, w)
-            for v in linear_vels
-            for w in angular_vels
-            if not (abs(v) < 1e-6 and abs(w) < 1e-6)
-        ]
+        if self.is_holonomic:
+            x = np.linspace(-self.max_vel * 0.5, self.max_vel * 0.5, 4)
+            y = np.linspace(-self.max_vel * 0.5, self.max_vel * 0.5, 4)
+            ms1 = -self.max_vel * 0.5
+            ps1 = self.max_vel * 0.5
+            zs1 = 0.0
+            print(x)
+            xy_vels = [(xc,yc) for xc in x for yc in y]
+            angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 3)
+            self.control_inputs = [
+                (v, w)
+                for v in xy_vels
+                for w in angular_vels
+                if not (abs(math.sqrt(v[0]**2 + v[1]**2)) < 1e-6 and abs(w) < 1e-6)
+            ]
+        else:
+            linear_vels = [-self.max_vel * 0.5, 0, self.max_vel]
+            angular_vels = np.linspace(-np.pi / 8, np.pi / 8, 3)
+            self.control_inputs = [
+                (v, w)
+                for v in linear_vels
+                for w in angular_vels
+                if not (abs(v) < 1e-6 and abs(w) < 1e-6)
+            ]
 
         # Collision cache
         self._collision_cache = {}
@@ -147,14 +172,23 @@ class DiffDriveRRTStar:
         best_d = float("inf")
 
         for v, w in self.control_inputs:
-            if abs(w) < 1e-6:
-                x1 = x0 + v * math.cos(th0_rad)
-                y1 = y0 + v * math.sin(th0_rad)
-                th1_rad = th0_rad
+            if self.is_holonomic:
+                (dx, dy) = v
+                x1 = x0 + dx
+                y1 = y0 + dy
+                if abs(w) < 1e-6:
+                    th1_rad = th0_rad
+                else:
+                    th1_rad = th0_rad + w
             else:
-                x1 = x0 + (v / w) * (math.sin(th0_rad + w) - math.sin(th0_rad))
-                y1 = y0 - (v / w) * (math.cos(th0_rad + w) - math.cos(th0_rad))
-                th1_rad = th0_rad + w
+                if abs(w) < 1e-6:
+                    x1 = x0 + v * math.cos(th0_rad)
+                    y1 = y0 + v * math.sin(th0_rad)
+                    th1_rad = th0_rad
+                else:
+                    x1 = x0 + (v / w) * (math.sin(th0_rad + w) - math.sin(th0_rad))
+                    y1 = y0 - (v / w) * (math.cos(th0_rad + w) - math.cos(th0_rad))
+                    th1_rad = th0_rad + w
 
             new_pose = (x1, y1, math.degrees(utils.normalize_angle_radians(th1_rad)))
             dx, dy = x1 - x0, y1 - y0

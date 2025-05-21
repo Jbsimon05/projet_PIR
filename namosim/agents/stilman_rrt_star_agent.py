@@ -2144,6 +2144,7 @@ class StilmanRRTStarAgent(Agent):
                 can_release = robot_collision_rrt.collision_free(
                     RRTNode(
                         robot_pose_after_release,
+                        robot_pose_after_release,
                         None,
                         node.cost,
                     )
@@ -2185,7 +2186,7 @@ class StilmanRRTStarAgent(Agent):
 
             tree = rrt.plan()
 
-            # rrt.plot()
+            rrt.plot()
             if tree is not None and len(self.has_local_openings) > 0:
                 # Compute best compromise cost among poses with local openings
                 best_compromise = self.has_local_openings[0]
