@@ -27,6 +27,9 @@ class RRTAgentConfigModel(BaseBehaviorConfigModel):
     type: t.Literal["rrt"] = attr()
     use_kd_tree: bool = attr(default=True)
 
+class RRTStarConfigModel(BaseBehaviorConfigModel):
+    type: t.Literal["rrt_star"] = attr()
+    use_kd_tree: bool = attr(default=False)
 
 class TeleopBehaviorConfigModel(BaseBehaviorConfigModel):
     type: t.Literal["teleop_behavior"] = attr()
@@ -86,6 +89,7 @@ AgentBehaviorConfig = t.Union[
     WuLevihnBehaviorConfigModel,
     NavigationOnlyBehaviorConfigModel,
     RRTAgentConfigModel,
+    RRTStarConfigModel,
     TeleopBehaviorConfigModel,
     StilmanBehaviorConfigModel,
     StilmanRRTBehaviorConfigModel,
