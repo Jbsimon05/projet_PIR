@@ -2131,13 +2131,15 @@ class StilmanRRTStarAgent(Agent):
             )
 
             self.found_opening = False
-            self.has_local_openings = []
+            self.has_local_openings: t.List[RRTNode] = []
             release_action = ba.Release(
                 entity_uid=obstacle_uid,
                 distance=-(self.grab_start_distance - self.grab_end_distance),
             )
 
-            def early_exit_condition(node: RRTNode, iteration: int) -> bool:
+            def early_exit_condition(
+                tree: t.List[RRTNode], node: RRTNode, iteration: int
+            ) -> bool:
                 robot_pose_after_release = release_action.predict_pose(
                     node.pose, node.pose
                 )
@@ -2145,7 +2147,7 @@ class StilmanRRTStarAgent(Agent):
                     RRTNode(
                         robot_pose_after_release,
                         None,
-                        node.cost
+                        node.cost,
                     )
                 )
                 new_obstacle_polygon = rrt.predict_polygon_for_node(
@@ -2185,23 +2187,26 @@ class StilmanRRTStarAgent(Agent):
 
             tree = rrt.plan()
 
-            rrt.plot()
+            # rrt.plot()
             if tree is not None and len(self.has_local_openings) > 0:
                 # Compute best compromise cost among poses with local openings
-                best_compromise = self.has_local_openings[0]
+                best_node = self.has_local_openings[0]
+                best_obs_pose = rrt.predict_pose_for_node(best_node, obstacle_pose)
+                best_obs_cell = map.pose_to_cell(best_obs_pose[0], best_obs_pose[1])
                 # 2 obstacle test only works with no node distance cost added, minimal test only works with + best_compromise.cost there
-                best_compromise_total_cost = sorted_cell_to_combined_cost.get(
-                    self.pose_to_fixed_precision(best_compromise.pose)[:2], 1000.0
+                best_node_cost = sorted_cell_to_combined_cost.get(
+                    best_obs_cell, float("inf")
                 )
                 for node in self.has_local_openings:
-                    key = self.pose_to_fixed_precision(node.pose)[:2]
+                    obs_pose = rrt.predict_pose_for_node(node, obstacle_pose)
+                    obs_cell = map.pose_to_cell(obs_pose[0], obs_pose[1])
                     # and + best_compromise.cost here
-                    cost = sorted_cell_to_combined_cost.get(key, 1000.0)
-                    if cost < best_compromise_total_cost:
-                        best_compromise_total_cost = cost
-                        best_compromise = node
+                    cost = sorted_cell_to_combined_cost.get(obs_cell, float("inf"))
+                    if cost < best_node_cost:
+                        best_node_cost = cost
+                        best_node = node
 
-                path_nodes = rrt._get_path(best_compromise)
+                path_nodes = rrt._get_path(best_node)
                 # rrt.debug_plan(path_nodes)
                 poses = [x.pose for x in path_nodes]
                 path = TransitPath.from_poses(
@@ -2281,7 +2286,7 @@ class StilmanRRTStarAgent(Agent):
             )
             robot_obstacle_polygon: Polygon = t.cast(
                 Polygon, combined_polygon.convex_hull
-            )
+            ).buffer(self.collision_margin, join_style=JOIN_STYLE.mitre)
 
             rrt = DiffDriveRRTStar(
                 polygon=robot_obstacle_polygon,
