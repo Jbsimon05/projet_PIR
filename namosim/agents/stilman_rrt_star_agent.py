@@ -2193,7 +2193,6 @@ class StilmanRRTStarAgent(Agent):
                 best_node = self.has_local_openings[0]
                 best_obs_pose = rrt.predict_pose_for_node(best_node, obstacle_pose)
                 best_obs_cell = map.pose_to_cell(best_obs_pose[0], best_obs_pose[1])
-                # 2 obstacle test only works with no node distance cost added, minimal test only works with + best_compromise.cost there
                 best_node_cost = sorted_cell_to_combined_cost.get(
                     best_obs_cell, float("inf")
                 )
@@ -2206,7 +2205,11 @@ class StilmanRRTStarAgent(Agent):
                         best_node_cost = cost
                         best_node = node
 
-                path_nodes = rrt._get_path(best_node)
+                # Path optimization
+                rrt.add_goal(best_node.pose)
+                path_nodes = rrt.plan(2000)
+
+                #path_nodes = rrt._get_path(best_node)
                 # rrt.debug_plan(path_nodes)
                 poses = [x.pose for x in path_nodes]
                 path = TransitPath.from_poses(

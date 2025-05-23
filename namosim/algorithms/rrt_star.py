@@ -41,7 +41,7 @@ class DiffDriveRRTStar:
         use_kdtree: bool = True,
         informed: bool = True,
         exit_check_interval: int = 3,
-        use_rrt_smart: bool = True, 
+        use_rrt_smart: bool = False, 
     ):
         self.polygon = polygon
         self.start = RRTNode(start)
@@ -63,6 +63,8 @@ class DiffDriveRRTStar:
 
         self.search_radius = self.map.cell_size * 5
         self.informed = informed
+        self.best_path = None
+        self.iterations_done = 0
         # Precompute reduced control inputs
         linear_vels = [-self.max_vel, 0, self.max_vel]
         angular_vels = np.linspace(-self.max_angular_vel, self.max_angular_vel, 3)
@@ -90,6 +92,7 @@ class DiffDriveRRTStar:
 
         if goal is not None:
             self.best_cost = float("inf")
+            self.best_goal_node = None
             self.c_best = None
             self.c_min = self.cost(self.start.pose, self.goal.pose)
             self.x_center = np.array(
@@ -309,10 +312,38 @@ class DiffDriveRRTStar:
         theta = 2 * math.pi * random.random()
         return np.array([r * math.cos(theta), r * math.sin(theta)])
 
-    def plan(self) -> Optional[List[RRTNode]]:
+    def add_goal(self, goal:PoseModel):
+        assert self.goal is None
+        self.goal = RRTNode(goal)
+        self.best_cost = float("inf")
+        self.c_best = None
+        self.c_min = self.cost(self.start.pose, self.goal.pose)
+        self.x_center = np.array(
+            [
+                (self.start.pose[0] + self.goal.pose[0]) / 2,
+                (self.start.pose[1] + self.goal.pose[1]) / 2,
+            ]
+        )
+        dx = (
+            (self.goal.pose[0] - self.start.pose[0]) / self.c_min
+            if self.c_min > 0
+            else 1
+        )
+        dy = (
+            (self.goal.pose[1] - self.start.pose[1]) / self.c_min
+            if self.c_min > 0
+            else 0
+        )
+        self.C = np.array([[dx, -dy], [dy, dx]])
+        nearest = self.nearest_node(goal)
+        if self.near_goal(nearest):
+            self.best_path = self._get_path(nearest)
+            self.best_goal_node = nearest
+
+    def plan(self, iteration_bound: int | None = None) -> Optional[List[RRTNode]]:
+        upper_bound = self.max_iter if iteration_bound is None else min(self.iterations_done + iteration_bound, self.max_iter)
         t0 = time.time()
-        best_path = None
-        for i in range(self.max_iter):
+        for i in range(self.iterations_done,upper_bound):
             cfg = self.random_pose()
             if self.goal and random.random() < 0.1:
                 cfg = self.goal.pose
@@ -354,18 +385,24 @@ class DiffDriveRRTStar:
                     if self.informed:
                         if total < self.best_cost:
                             self.best_cost = self.c_best = total
-                            best_path = path
+                            self.best_goal_node = n1
+                            self.best_path = path
                     else:
+                        self.iterations_done = i
                         self.elapsed_time = time.time() - t0
                         return path
             elif i % self.exit_interval == 0 and self.early_exit_condition(
                 self.tree, n1, i
             ):
+                self.iterations_done = i
                 return self.tree
         self.elapsed_time = time.time() - t0
-        if self.use_rrt_smart and best_path:
-            best_path = self._rrt_smart_optimization(best_path)
-        return best_path if self.informed else None
+        self.iterations_done = self.max_iter
+        if self.best_path:
+            self.best_path = self._get_path(self.best_goal_node)
+        if self.use_rrt_smart and self.best_path:
+            self.best_path = self._rrt_smart_optimization(self.best_path)
+        return self.best_path if self.informed else None
 
     def _rrt_smart_optimization(self, path: List[RRTNode]) -> List[RRTNode]:
         """
