@@ -41,6 +41,7 @@ class DiffDriveRRTStar:
         use_kdtree: bool = True,
         informed: bool = True,
         exit_check_interval: int = 3,
+        use_rrt_smart: bool = True, 
     ):
         self.polygon = polygon
         self.start = RRTNode(start)
@@ -122,6 +123,7 @@ class DiffDriveRRTStar:
             self._kdtree.add(self.start)
 
         self.elapsed_time: Optional[float] = None
+        self.use_rrt_smart = use_rrt_smart  # Stocker l'option RRT Smart
 
     def cost(self, a: PoseModel, b: PoseModel) -> float:
         # Extract coordinates and angles
@@ -361,7 +363,25 @@ class DiffDriveRRTStar:
             ):
                 return self.tree
         self.elapsed_time = time.time() - t0
+        if self.use_rrt_smart and best_path:
+            best_path = self._rrt_smart_optimization(best_path)
         return best_path if self.informed else None
+
+    def _rrt_smart_optimization(self, path: List[RRTNode]) -> List[RRTNode]:
+        """
+        Effectue des optimisations supplémentaires sur le chemin trouvé.
+        """
+        # Lissage du chemin
+        smoothed_path = self.smooth_path(path)
+        # Réorganisation des nœuds pour minimiser les coûts
+        for i in range(len(smoothed_path) - 1):
+            if self._shortcut_collision_free(smoothed_path[i], smoothed_path[i + 1]):
+                smoothed_path[i + 1].parent = smoothed_path[i]
+                smoothed_path[i + 1].cost = (
+                    smoothed_path[i].cost
+                    + self.cost(smoothed_path[i].pose, smoothed_path[i + 1].pose)
+                )
+        return smoothed_path
 
     def add_new_node(self, node: RRTNode):
         discretized_pose = self._pose_to_fixed_precision(node.pose)
