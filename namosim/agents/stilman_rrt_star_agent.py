@@ -2205,7 +2205,7 @@ class StilmanRRTStarAgent(Agent):
                         best_node_cost = cost
                         best_node = node
 
-                # Path optimization
+                # Path optimization, control the optimization steps with the .plan() parameter
                 rrt.add_goal(best_node.pose)
                 path_nodes = rrt.plan(2000)
 

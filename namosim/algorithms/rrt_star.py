@@ -313,6 +313,7 @@ class DiffDriveRRTStar:
         return np.array([r * math.cos(theta), r * math.sin(theta)])
 
     def add_goal(self, goal:PoseModel):
+        """If this instance had no goal before, add a goal. If the goal is reachable from the existing tree, pre-compute the best path and associated final node"""
         assert self.goal is None
         self.goal = RRTNode(goal)
         self.best_cost = float("inf")
